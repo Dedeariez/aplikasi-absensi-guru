@@ -1,0 +1,7 @@
+
+{
+  "name": "Aplikasi Absensi Guru",
+  "description": "Aplikasi manajemen absensi siswa yang aman untuk lingkungan sekolah. Setiap guru memiliki akun pribadi untuk mengelola data siswa dan absensinya sendiri. Fitur termasuk input absensi massal per kelas, impor siswa via Excel, rekapitulasi, dan ekspor laporan. Siap untuk production.",
+  "requestFramePermissions": [],
+  "prompt": "sekarang apa yang harus aku lakukan agar aplikasi ini bisa dipakai di sekolah"
+}

@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Student, AttendanceRecord, AttendanceStatus, View, RecapData, ToastMessage } from './types';
 import { endOfWeek } from 'date-fns/endOfWeek';
@@ -81,6 +80,7 @@ const MenuIcon = ({ className = 'w-6 h-6' }: { className?: string }) => <svg xml
 const CloseIcon = ({ className = 'w-6 h-6' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 const LogoutIcon = ({ className = 'w-5 h-5' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>;
 const SearchIcon = ({ className = 'w-5 h-5' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg>;
+const MailIcon = ({ className = 'w-16 h-16' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>;
 
 
 // --- REUSABLE UI COMPONENTS ---
@@ -1071,40 +1071,122 @@ const Header = ({ onMenuClick }: { onMenuClick: () => void }) => (
 );
 
 const AuthView = ({ showToast }: { showToast: (type: 'success' | 'error', message: string) => void }) => {
-    const [authView, setAuthView] = useState<'login' | 'signup'>('login');
+    const [authStatus, setAuthStatus] = useState<'login' | 'signup' | 'awaiting_confirmation'>('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [submittedEmail, setSubmittedEmail] = useState('');
+    const [resendLoading, setResendLoading] = useState(false);
+
+    const handleResendEmail = async () => {
+        if (!submittedEmail) return;
+        setResendLoading(true);
+        try {
+            const { error } = await supabase.auth.resend({
+                type: 'signup',
+                email: submittedEmail,
+            });
+            if (error) throw error;
+            showToast('success', 'Tautan verifikasi baru telah dikirim.');
+        } catch (error: any) {
+            showToast('error', error.error_description || error.message);
+        } finally {
+            setResendLoading(false);
+        }
+    };
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         try {
-            if (authView === 'login') {
+            if (authStatus === 'login') {
                 const { error } = await supabase.auth.signInWithPassword({ email, password });
                 if (error) throw error;
-                showToast('success', 'Berhasil masuk!');
-            } else {
-                const { error } = await supabase.auth.signUp({ email, password });
-                if (error) throw error;
-                showToast('success', 'Pendaftaran berhasil! Silakan periksa email Anda untuk verifikasi.');
+                // Success is handled by onAuthStateChange
+            } else { // signup
+                const { data, error } = await supabase.auth.signUp({ email, password });
+                if (error) {
+                    if (error.message.toLowerCase().includes('user already registered')) {
+                        showToast('error', 'Email sudah terdaftar. Silakan masuk atau gunakan email lain.');
+                    } else {
+                        throw error;
+                    }
+                } else if (data.user) {
+                    setSubmittedEmail(email);
+                    setAuthStatus('awaiting_confirmation');
+                    if (data.user.identities?.length === 0) {
+                         showToast('success', 'Email ini sudah terdaftar tapi belum dikonfirmasi. Kami telah mengirim ulang tautan verifikasi.');
+                    } else {
+                         showToast('success', 'Pendaftaran berhasil! Tautan verifikasi telah dikirim ke email Anda.');
+                    }
+                }
             }
         } catch (error: any) {
-            showToast('error', error.error_description || error.message);
+            if (authStatus === 'login' && error.message?.toLowerCase().includes('email not confirmed')) {
+                // If login fails due to unconfirmed email, resend confirmation and show the relevant screen.
+                await supabase.auth.resend({ type: 'signup', email });
+                setSubmittedEmail(email);
+                setAuthStatus('awaiting_confirmation');
+                showToast('error', 'Email Anda belum diverifikasi. Kami telah mengirim ulang tautan verifikasi.');
+            } else {
+                showToast('error', error.error_description || error.message);
+            }
         } finally {
             setLoading(false);
         }
     };
 
+    if (authStatus === 'awaiting_confirmation') {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-100">
+                <div className="w-full max-w-md mx-auto p-4 sm:p-8">
+                    <div className="bg-white shadow-lg rounded-lg p-8 text-center">
+                        <div className="flex justify-center mb-6">
+                            <MailIcon className="w-16 h-16 text-sekolah-500"/>
+                        </div>
+                        <h2 className="text-2xl font-bold text-sekolah-800 mb-2">
+                            Verifikasi Email Anda
+                        </h2>
+                        <p className="text-slate-500 mb-6">
+                            Kami telah mengirimkan tautan konfirmasi ke: <br/>
+                            <strong className="text-slate-700 break-all">{submittedEmail}</strong>
+                        </p>
+                        <p className="text-sm text-slate-500">
+                            Silakan periksa kotak masuk Anda (termasuk folder spam) dan klik tautan tersebut untuk menyelesaikan pendaftaran.
+                        </p>
+                        <div className="mt-8 space-y-4">
+                             <Button
+                                onClick={handleResendEmail}
+                                variant="secondary"
+                                className="w-full"
+                                isLoading={resendLoading}
+                                disabled={resendLoading}
+                            >
+                                Kirim Ulang Email
+                            </Button>
+                            <button
+                                onClick={() => setAuthStatus('login')}
+                                className="font-medium text-sekolah-600 hover:text-sekolah-500 text-sm"
+                            >
+                                &larr; Kembali ke Login
+                            </button>
+                        </div>
+                    </div>
+                    <p className="text-center text-xs text-slate-400 mt-6">&copy; {new Date().getFullYear()} Aplikasi Absensi Guru</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex items-center justify-center min-h-screen bg-slate-100">
-            <div className="w-full max-w-md mx-auto p-8">
+            <div className="w-full max-w-md mx-auto p-4 sm:p-8">
                 <div className="bg-white shadow-lg rounded-lg p-8">
                     <h2 className="text-2xl font-bold text-center text-sekolah-800 mb-2">
-                        {authView === 'login' ? 'Selamat Datang Kembali' : 'Buat Akun Baru'}
+                        {authStatus === 'login' ? 'Selamat Datang Kembali' : 'Buat Akun Baru'}
                     </h2>
                     <p className="text-center text-slate-500 mb-6">
-                        {authView === 'login' ? 'Masuk untuk melanjutkan' : 'Daftar untuk mulai mengelola absensi'}
+                        {authStatus === 'login' ? 'Masuk untuk melanjutkan' : 'Daftar untuk mulai mengelola absensi'}
                     </p>
                     <form onSubmit={handleAuth} className="space-y-6">
                         <div>
@@ -1132,16 +1214,21 @@ const AuthView = ({ showToast }: { showToast: (type: 'success' | 'error', messag
                             />
                         </div>
                         <Button type="submit" className="w-full" isLoading={loading} disabled={loading}>
-                            {authView === 'login' ? 'Masuk' : 'Daftar'}
+                            {authStatus === 'login' ? 'Masuk' : 'Daftar'}
                         </Button>
                     </form>
                     <p className="mt-6 text-center text-sm">
-                        {authView === 'login' ? 'Belum punya akun? ' : 'Sudah punya akun? '}
+                        {authStatus === 'login' ? 'Belum punya akun? ' : 'Sudah punya akun? '}
                         <button
-                            onClick={() => setAuthView(authView === 'login' ? 'signup' : 'login')}
+                            onClick={() => {
+                                setEmail('');
+                                setPassword('');
+                                setAuthStatus(authStatus === 'login' ? 'signup' : 'login')
+                            }}
                             className="font-medium text-sekolah-600 hover:text-sekolah-500"
+                            disabled={loading}
                         >
-                            {authView === 'login' ? 'Daftar di sini' : 'Masuk di sini'}
+                            {authStatus === 'login' ? 'Daftar di sini' : 'Masuk di sini'}
                         </button>
                     </p>
                 </div>
@@ -1420,6 +1507,9 @@ const App = () => {
         getSession();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (_event === 'SIGNED_IN' && session) {
+                 showToast('success', 'Berhasil masuk!');
+            }
             setSession(session);
         });
 

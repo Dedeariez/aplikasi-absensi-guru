@@ -14,7 +14,7 @@ import { startOfMonth } from 'date-fns/startOfMonth';
 import { subMonths } from 'date-fns/subMonths';
 import { id as idLocale } from 'date-fns/locale/id';
 import { supabase } from './supabaseClient';
-import type { Session, Provider } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 
 
 // Type assertion for global libraries from CDN
@@ -636,330 +636,284 @@ const StudentManagementView = ({
     );
 };
 
-const ClassAttendanceView = ({
+const AttendanceView = ({
     students,
     attendanceRecords,
     onSave,
-    showToast,
+    showToast
 }: {
     students: Student[];
     attendanceRecords: AttendanceRecord[];
-    onSave: (records: Omit<AttendanceRecord, 'id'>[]) => Promise<boolean>;
+    onSave: (records: Pick<AttendanceRecord, 'studentId' | 'date' | 'lessonHour' | 'status'>[]) => Promise<void>;
     showToast: (type: 'success' | 'error', message: string) => void;
 }) => {
-    const uniqueClasses = useMemo(() => [...new Set(students.map(s => s.class))].sort(), [students]);
-    
-    const [selectedClass, setSelectedClass] = useState<string>(uniqueClasses[0] || '');
-    const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
-    const [selectedHour, setSelectedHour] = useState<number>(1);
-    const [attendanceData, setAttendanceData] = useState<Map<number, AttendanceStatus>>(new Map());
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const classNames = useMemo(() => [...new Set(students.map(s => s.class))].sort(), [students]);
+    const [selectedClass, setSelectedClass] = useState<string>(classNames[0] || '');
+    const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+    const [lessonHour, setLessonHour] = useState(1);
+    const [attendance, setAttendance] = useState<Record<number, AttendanceStatus>>({});
+    const [isSaving, setIsSaving] = useState(false);
 
     const studentsInClass = useMemo(() => {
-        return students
-            .filter(s => s.class === selectedClass)
-            .sort((a, b) => a.name.localeCompare(b.name));
+        return students.filter(s => s.class === selectedClass);
     }, [students, selectedClass]);
 
     useEffect(() => {
-        const newAttendanceData = new Map<number, AttendanceStatus>();
-        const existingRecordsForFilter = attendanceRecords.filter(
-            r => r.date === selectedDate && r.lessonHour === selectedHour
-        );
-        
+        if (classNames.length > 0 && !selectedClass) {
+            setSelectedClass(classNames[0]);
+        }
+    }, [classNames, selectedClass]);
+
+    useEffect(() => {
+        const existingRecords = attendanceRecords.filter(r => r.date === selectedDate && r.lessonHour === lessonHour);
+        const newAttendance: Record<number, AttendanceStatus> = {};
         studentsInClass.forEach(student => {
-            const existingRecord = existingRecordsForFilter.find(r => r.studentId === student.id);
-            newAttendanceData.set(student.id, existingRecord ? existingRecord.status : AttendanceStatus.Hadir);
+            const record = existingRecords.find(r => r.studentId === student.id);
+            newAttendance[student.id] = record ? record.status : AttendanceStatus.Hadir;
         });
-        setAttendanceData(newAttendanceData);
-    }, [studentsInClass, attendanceRecords, selectedDate, selectedHour]);
+        setAttendance(newAttendance);
+    }, [selectedClass, selectedDate, lessonHour, studentsInClass, attendanceRecords]);
 
     const handleStatusChange = (studentId: number, status: AttendanceStatus) => {
-        setAttendanceData(prev => new Map(prev).set(studentId, status));
-    };
-
-    const handleMarkAllPresent = () => {
-        const newAttendanceData = new Map<number, AttendanceStatus>();
-        studentsInClass.forEach(student => {
-            newAttendanceData.set(student.id, AttendanceStatus.Hadir);
-        });
-        setAttendanceData(newAttendanceData);
+        setAttendance(prev => ({ ...prev, [studentId]: status }));
     };
 
     const handleSave = async () => {
-        if (studentsInClass.length === 0) {
-            showToast('error', 'Tidak ada siswa di kelas ini untuk diabsen.');
-            return;
-        }
+        const recordsToSave = studentsInClass.map(student => ({
+            studentId: student.id,
+            date: selectedDate,
+            lessonHour: lessonHour,
+            status: attendance[student.id] || AttendanceStatus.Hadir,
+        }));
         
-        setIsSubmitting(true);
-        const recordsToSave: Omit<AttendanceRecord, 'id'>[] = [];
-        attendanceData.forEach((status, studentId) => {
-            recordsToSave.push({
-                studentId: studentId,
-                date: selectedDate,
-                lessonHour: selectedHour,
-                status: status,
-            });
-        });
-
-        const success = await onSave(recordsToSave);
-        setIsSubmitting(false);
-
-        if (success) {
-            showToast('success', `Absensi untuk kelas ${selectedClass} berhasil disimpan!`);
-        } else {
-             showToast('error', 'Gagal menyimpan absensi. Silakan coba lagi.');
+        setIsSaving(true);
+        try {
+            await onSave(recordsToSave);
+            showToast('success', `Absensi untuk kelas ${selectedClass} pada jam ke-${lessonHour} berhasil disimpan.`);
+        } catch (error: any) {
+            // Error handling is done in the parent `handleSaveClassAttendance` function, which shows a toast.
+        } finally {
+            setIsSaving(false);
         }
+    };
+    
+    const setAllStudentsStatus = (status: AttendanceStatus) => {
+      const newAttendance: Record<number, AttendanceStatus> = {};
+      studentsInClass.forEach(student => {
+        newAttendance[student.id] = status;
+      });
+      setAttendance(newAttendance);
     };
 
     return (
         <div className="space-y-6">
-            <h1 className="text-3xl font-bold text-slate-800">Absensi Kelas</h1>
+            <h1 className="text-3xl font-bold text-slate-800">Input Absensi Kelas</h1>
             <Card>
-                <div className="flex flex-wrap gap-4 items-end p-4 border-b">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 pb-6 border-b">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700">Kelas</label>
-                        <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} disabled={isSubmitting || uniqueClasses.length === 0} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500">
-                           {uniqueClasses.length > 0 ? (
-                               uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)
-                           ) : (
-                               <option>Belum ada kelas</option>
-                           )}
+                        <label htmlFor="class-select" className="block text-sm font-medium text-slate-700">Kelas</label>
+                        <select id="class-select" value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500" disabled={!classNames.length}>
+                            {classNames.map(c => <option key={c} value={c}>{c}</option>)}
+                            {!classNames.length && <option>Belum ada kelas</option>}
                         </select>
                     </div>
-                     <div>
-                        <label className="block text-sm font-medium text-slate-700">Tanggal</label>
-                        <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"/>
+                    <div>
+                        <label htmlFor="date-select" className="block text-sm font-medium text-slate-700">Tanggal</label>
+                        <input type="date" id="date-select" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500" />
                     </div>
-                     <div>
-                        <label className="block text-sm font-medium text-slate-700">Jam Ke-</label>
-                        <input type="number" value={selectedHour} onChange={e => setSelectedHour(Number(e.target.value))} min="1" disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"/>
+                    <div>
+                        <label htmlFor="lesson-hour" className="block text-sm font-medium text-slate-700">Jam Pelajaran Ke-</label>
+                        <input type="number" id="lesson-hour" value={lessonHour} onChange={e => setLessonHour(Math.max(1, parseInt(e.target.value) || 1))} min="1" className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500" />
                     </div>
-                    <div className="flex-grow"></div>
-                     <Button onClick={handleMarkAllPresent} variant="secondary" disabled={isSubmitting || studentsInClass.length === 0}>
-                        Tandai Semua Hadir
-                    </Button>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-4">
+                    <span className="text-sm font-medium text-slate-700 self-center">Atur Semua:</span>
+                    <Button variant="secondary" onClick={() => setAllStudentsStatus(AttendanceStatus.Hadir)} className="py-1 px-3 text-sm">Hadir</Button>
+                    <Button variant="secondary" onClick={() => setAllStudentsStatus(AttendanceStatus.Sakit)} className="py-1 px-3 text-sm">Sakit</Button>
+                    <Button variant="secondary" onClick={() => setAllStudentsStatus(AttendanceStatus.Izin)} className="py-1 px-3 text-sm">Izin</Button>
+                    <Button variant="secondary" onClick={() => setAllStudentsStatus(AttendanceStatus.Alfa)} className="py-1 px-3 text-sm">Alfa</Button>
                 </div>
                 
-                <div className="max-h-[60vh] overflow-y-auto">
+                <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                        <thead className="sticky top-0 bg-slate-50 z-10">
-                            <tr className="border-b">
+                        <thead>
+                            <tr className="border-b bg-slate-50">
                                 <th className="p-3 font-semibold">Nama Siswa</th>
-                                <th className="p-3 font-semibold text-center w-[300px]">Status</th>
+                                <th className="p-3 font-semibold text-center">Status Kehadiran</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {studentsInClass.length > 0 ? studentsInClass.map(student => (
+                            {studentsInClass.map(student => (
                                 <tr key={student.id} className="border-b hover:bg-slate-50">
                                     <td className="p-3 font-medium">{student.name}</td>
-                                    <td className="p-2 text-center">
-                                        <div className="flex justify-center gap-1 sm:gap-2">
+                                    <td className="p-3">
+                                        <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
                                             {Object.values(AttendanceStatus).map(status => (
-                                                <button 
-                                                    key={status} 
-                                                    onClick={() => handleStatusChange(student.id, status)}
-                                                    disabled={isSubmitting}
-                                                    className={`px-3 py-1.5 text-xs sm:text-sm rounded-md transition-all font-semibold ${attendanceData.get(student.id) === status ? 'ring-2 ring-sekolah-500 shadow' : 'opacity-60 hover:opacity-100'} ${getStatusColor(status)}`}
-                                                >
-                                                    {status}
-                                                </button>
+                                                <label key={status} className="flex items-center space-x-2 cursor-pointer">
+                                                    <input
+                                                        type="radio"
+                                                        name={`status-${student.id}`}
+                                                        value={status}
+                                                        checked={attendance[student.id] === status}
+                                                        onChange={() => handleStatusChange(student.id, status)}
+                                                        className="form-radio h-4 w-4 text-sekolah-600 border-slate-300 focus:ring-sekolah-500"
+                                                    />
+                                                    <span className={`text-sm ${attendance[student.id] === status ? 'font-bold' : ''}`}>{status}</span>
+                                                </label>
                                             ))}
                                         </div>
                                     </td>
                                 </tr>
-                            )) : (
+                            ))}
+                             {studentsInClass.length === 0 && (
                                 <tr>
-                                    <td colSpan={2} className="text-center p-8 text-slate-500">
-                                        Pilih kelas untuk memulai absensi.
+                                    <td colSpan={2} className="text-center p-6 text-slate-500">
+                                       {selectedClass ? 'Tidak ada siswa di kelas ini.' : 'Pilih kelas untuk menampilkan siswa.'}
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
                 </div>
-                 {studentsInClass.length > 0 && (
-                    <div className="p-4 border-t flex flex-col items-center">
-                       <Button onClick={handleSave} variant="primary" isLoading={isSubmitting} className="w-full max-w-xs">
-                           Simpan Absensi Kelas {selectedClass}
-                       </Button>
-                    </div>
-                )}
+                 <div className="mt-6 flex justify-end">
+                    <Button onClick={handleSave} isLoading={isSaving} disabled={isSaving || studentsInClass.length === 0}>Simpan Absensi</Button>
+                </div>
             </Card>
         </div>
     );
 };
 
-const RecapView = ({ students, attendanceRecords, onViewDetail }: { students: Student[]; attendanceRecords: AttendanceRecord[]; onViewDetail: (id: number) => void; }) => {
-    type Period = 'daily' | 'weekly' | 'monthly' | 'last_month';
-    const [period, setPeriod] = useState<Period>('monthly');
-    const [filterDate, setFilterDate] = useState(new Date());
+const RecapView = ({
+    students,
+    attendanceRecords,
+}: {
+    students: Student[];
+    attendanceRecords: AttendanceRecord[];
+}) => {
+    const [filterType, setFilterType] = useState<'monthly' | 'weekly'>('monthly');
+    const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
     const [filterClass, setFilterClass] = useState<string>('all');
     
-    const uniqueClasses = useMemo(() => [...new Set(students.map(s => s.class))].sort(), [students]);
+    const classNames = useMemo(() => ['all', ...[...new Set(students.map(s => s.class))].sort()], [students]);
 
-    const recapData = useMemo(() => {
-        let startDate: Date, endDate: Date;
-        const now = filterDate;
-        switch(period) {
-            case 'daily':
-                startDate = endDate = now;
-                break;
-            case 'weekly':
-                startDate = startOfWeek(now, { weekStartsOn: 1 });
-                endDate = endOfWeek(now, { weekStartsOn: 1 });
-                break;
-            case 'last_month':
-                const lastMonthDate = subMonths(now, 1);
-                startDate = startOfMonth(lastMonthDate);
-                endDate = endOfMonth(lastMonthDate);
-                break;
-            case 'monthly':
-            default:
-                startDate = startOfMonth(now);
-                endDate = endOfMonth(now);
-                break;
-        }
+    const recapData: RecapData[] = useMemo(() => {
+        const interval = filterType === 'monthly'
+            ? { start: startOfMonth(parseISO(selectedMonth)), end: endOfMonth(parseISO(selectedMonth)) }
+            : { start: startOfWeek(new Date(), { weekStartsOn: 1 }), end: endOfWeek(new Date(), { weekStartsOn: 1 }) };
 
+        const relevantRecords = attendanceRecords.filter(r => isWithinInterval(parseISO(r.date), interval));
         const filteredStudents = filterClass === 'all' ? students : students.filter(s => s.class === filterClass);
-        const recordsInPeriod = attendanceRecords.filter(r => isWithinInterval(parseISO(r.date), { start: startDate, end: endDate }));
-        
-        return filteredStudents.map(student => {
-            const studentRecords = recordsInPeriod.filter(r => r.studentId === student.id);
-            const counts = studentRecords.reduce((acc, record) => {
-                acc[record.status] = (acc[record.status] || 0) + 1;
-                return acc;
-            }, {} as Record<AttendanceStatus, number>);
 
-            const hadir = counts.Hadir || 0;
-            const totalHoursInPeriod = studentRecords.length; // Total lessons recorded for this student in period
-            const presencePercentage = totalHoursInPeriod > 0 ? Math.round((hadir / totalHoursInPeriod) * 100) : 0;
-            
+        return filteredStudents.map(student => {
+            const studentRecords = relevantRecords.filter(r => r.studentId === student.id);
+            const hadir = studentRecords.filter(r => r.status === AttendanceStatus.Hadir).length;
+            const sakit = studentRecords.filter(r => r.status === AttendanceStatus.Sakit).length;
+            const izin = studentRecords.filter(r => r.status === AttendanceStatus.Izin).length;
+            const alfa = studentRecords.filter(r => r.status === AttendanceStatus.Alfa).length;
+            const totalHours = hadir + sakit + izin + alfa;
+            const presencePercentage = totalHours > 0 ? Math.round((hadir / totalHours) * 100) : 0;
+
             return {
                 studentId: student.id,
                 studentName: student.name,
                 studentClass: student.class,
-                hadir: hadir,
-                sakit: counts.Sakit || 0,
-                izin: counts.Izin || 0,
-                alfa: counts.Alfa || 0,
-                totalHours: totalHoursInPeriod,
+                hadir, sakit, izin, alfa,
+                totalHours,
                 presencePercentage,
             };
-        }).sort((a,b) => a.studentName.localeCompare(b.studentName));
-    }, [students, attendanceRecords, period, filterDate, filterClass]);
+        });
+    }, [students, attendanceRecords, filterType, selectedMonth, filterClass]);
 
     const handleExportExcel = () => {
-        const dataToExport = recapData.map(d => ({
-            'Nama Siswa': d.studentName,
-            'Kelas': d.studentClass,
-            'Hadir (Jam)': d.hadir,
-            'Sakit (Jam)': d.sakit,
-            'Izin (Jam)': d.izin,
-            'Alfa (Jam)': d.alfa,
-            'Total Jam': d.totalHours,
-            'Persentase Hadir (%)': d.presencePercentage,
-            'Status': getPresenceStatus(d.presencePercentage).text,
-        }));
-        exportToExcel(dataToExport, `Rekap_Kehadiran_${period}_${format(filterDate, 'yyyy-MM-dd')}`, 'Rekap');
+      const dataToExport = recapData.map(d => ({
+        'Nama Siswa': d.studentName,
+        'Kelas': d.studentClass,
+        'Hadir': d.hadir,
+        'Sakit': d.sakit,
+        'Izin': d.izin,
+        'Alfa': d.alfa,
+        'Total Jam': d.totalHours,
+        'Persentase Kehadiran (%)': d.presencePercentage
+      }));
+      exportToExcel(dataToExport, `rekap-absensi-${filterClass}-${selectedMonth}`, 'Rekap Absensi');
     };
 
     const handleExportPdf = () => {
-        const title = `Rekap Kehadiran - Periode ${period} (${format(filterDate, 'MMMM yyyy')})`;
-        const headers = ['Nama', 'Kelas', 'H', 'S', 'I', 'A', 'Total', '%', 'Status'];
-        const body = recapData.map(d => [
-            d.studentName,
-            d.studentClass,
-            d.hadir,
-            d.sakit,
-            d.izin,
-            d.alfa,
-            d.totalHours,
-            `${d.presencePercentage}%`,
-            getPresenceStatus(d.presencePercentage).text,
-        ]);
-        exportToPdf(title, headers, body, `Rekap_Kehadiran_${period}_${format(filterDate, 'yyyy-MM-dd')}`);
+      const headers = ['Nama Siswa', 'Kelas', 'Hadir', 'Sakit', 'Izin', 'Alfa', 'Total', 'Kehadiran (%)'];
+      const body = recapData.map(d => [d.studentName, d.studentClass, d.hadir, d.sakit, d.izin, d.alfa, d.totalHours, `${d.presencePercentage}%`]);
+      exportToPdf(`Rekap Absensi Kelas ${filterClass} - ${format(parseISO(selectedMonth), 'MMMM yyyy', {locale: idLocale})}`, headers, body, `rekap-absensi-${filterClass}-${selectedMonth}`);
     };
-    
-    const getPeriodLabel = () => {
-        switch(period){
-            case 'daily': return `Tanggal: ${format(filterDate, 'd MMM yyyy')}`;
-            case 'weekly': return `Pekan: ${format(startOfWeek(filterDate, {weekStartsOn: 1}), 'd MMM')} - ${format(endOfWeek(filterDate, {weekStartsOn: 1}), 'd MMM yyyy')}`;
-            case 'last_month': return `Bulan: ${format(subMonths(new Date(), 1), 'MMMM yyyy')}`;
-            case 'monthly': return `Bulan: ${format(filterDate, 'MMMM yyyy')}`;
-        }
-    }
 
     return (
         <div className="space-y-6">
-            <h1 className="text-3xl font-bold text-slate-800">Rekap Kehadiran</h1>
-            
+            <div className="flex flex-wrap justify-between items-center gap-4">
+                <h1 className="text-3xl font-bold text-slate-800">Rekapitulasi Absensi</h1>
+                <div className="flex items-center gap-2">
+                    <Button onClick={handleExportExcel} variant="secondary"><DownloadIcon /> Excel</Button>
+                    <Button onClick={handleExportPdf} variant="secondary"><DownloadIcon /> PDF</Button>
+                </div>
+            </div>
+
             <Card>
-                <div className="flex flex-wrap gap-4 items-end p-4 border-b">
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700">Periode</label>
-                         <select value={period} onChange={e => { setPeriod(e.target.value as Period); if(e.target.value !== 'last_month') setFilterDate(new Date()) }} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500">
-                            <option value="daily">Harian</option>
-                            <option value="weekly">Mingguan</option>
-                            <option value="monthly">Bulanan</option>
-                            <option value="last_month">Bulan Lalu</option>
-                        </select>
+                <div className="flex flex-wrap gap-4 p-4 border-b">
+                    <div className="flex-grow">
+                        <label htmlFor="month-select" className="block text-sm font-medium text-slate-700">Bulan</label>
+                        <input
+                            type="month"
+                            id="month-select"
+                            value={selectedMonth}
+                            onChange={(e) => setSelectedMonth(e.target.value)}
+                            className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"
+                        />
                     </div>
-                    {period === 'daily' && (
-                         <div>
-                            <label className="block text-sm font-medium text-slate-700">Tanggal</label>
-                            <input type="date" value={format(filterDate, 'yyyy-MM-dd')} onChange={e => setFilterDate(parseISO(e.target.value))} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"/>
-                         </div>
-                    )}
-                     <div>
-                        <label className="block text-sm font-medium text-slate-700">Kelas</label>
-                         <select value={filterClass} onChange={e => setFilterClass(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500">
-                            <option value="all">Semua Kelas</option>
-                            {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                    <div className="flex-grow">
+                        <label htmlFor="class-filter" className="block text-sm font-medium text-slate-700">Filter Kelas</label>
+                        <select
+                            id="class-filter"
+                            value={filterClass}
+                            onChange={(e) => setFilterClass(e.target.value)}
+                            className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"
+                        >
+                            {classNames.map(c => <option key={c} value={c}>{c === 'all' ? 'Semua Kelas' : c}</option>)}
                         </select>
-                    </div>
-                    <div className="flex-grow"></div>
-                    <div className="flex gap-2">
-                        <Button onClick={handleExportExcel} variant="secondary"><DownloadIcon/> Excel</Button>
-                        <Button onClick={handleExportPdf} variant="secondary"><DownloadIcon/> PDF</Button>
                     </div>
                 </div>
-                <p className="text-sm text-slate-500 p-4">{getPeriodLabel()}</p>
+
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                        <thead className="bg-slate-50">
-                            <tr>
+                        <thead>
+                            <tr className="border-b bg-slate-50">
                                 <th className="p-3 font-semibold">Nama Siswa</th>
                                 <th className="p-3 font-semibold">Kelas</th>
-                                <th className="p-3 font-semibold text-center" title="Hadir">H</th>
-                                <th className="p-3 font-semibold text-center" title="Sakit">S</th>
-                                <th className="p-3 font-semibold text-center" title="Izin">I</th>
-                                <th className="p-3 font-semibold text-center" title="Alfa">A</th>
-                                <th className="p-3 font-semibold text-center" title="Total Jam Pelajaran">Total</th>
-                                <th className="p-3 font-semibold text-center" title="Persentase Kehadiran">% Hadir</th>
-                                <th className="p-3 font-semibold">Status</th>
+                                <th className="p-3 font-semibold text-center">Hadir</th>
+                                <th className="p-3 font-semibold text-center">Sakit</th>
+                                <th className="p-3 font-semibold text-center">Izin</th>
+                                <th className="p-3 font-semibold text-center">Alfa</th>
+                                <th className="p-3 font-semibold text-center">Total</th>
+                                <th className="p-3 font-semibold text-center">Kehadiran</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {recapData.map(d => {
-                                const status = getPresenceStatus(d.presencePercentage);
-                                return (
-                                <tr key={d.studentId} className="border-b hover:bg-slate-50">
-                                    <td className="p-3 font-medium text-sekolah-700 cursor-pointer hover:underline" onClick={() => onViewDetail(d.studentId)}>{d.studentName}</td>
-                                    <td className="p-3">{d.studentClass}</td>
-                                    <td className="p-3 text-center text-green-600">{d.hadir}</td>
-                                    <td className="p-3 text-center text-yellow-600">{d.sakit}</td>
-                                    <td className="p-3 text-center text-blue-600">{d.izin}</td>
-                                    <td className="p-3 text-center text-red-600">{d.alfa}</td>
-                                    <td className="p-3 text-center font-medium">{d.totalHours}</td>
-                                    <td className="p-3 text-center font-bold">{d.presencePercentage}%</td>
-                                    <td className={`p-3 font-semibold ${status.color}`}>{status.text}</td>
+                            {recapData.map(data => (
+                                <tr key={data.studentId} className="border-b hover:bg-slate-50">
+                                    <td className="p-3 font-medium">{data.studentName}</td>
+                                    <td className="p-3">{data.studentClass}</td>
+                                    <td className="p-3 text-center">{data.hadir}</td>
+                                    <td className="p-3 text-center">{data.sakit}</td>
+                                    <td className="p-3 text-center">{data.izin}</td>
+                                    <td className="p-3 text-center">{data.alfa}</td>
+                                    <td className="p-3 text-center font-bold">{data.totalHours}</td>
+                                    <td className={`p-3 text-center font-bold ${getPresenceStatus(data.presencePercentage).color}`}>
+                                        {data.presencePercentage}%
+                                    </td>
                                 </tr>
-                            )})}
+                            ))}
                             {recapData.length === 0 && (
                                 <tr>
-                                    <td colSpan={9} className="text-center p-6 text-slate-500">Tidak ada data untuk ditampilkan.</td>
+                                    <td colSpan={8} className="text-center p-6 text-slate-500">
+                                        Tidak ada data absensi untuk filter yang dipilih.
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
@@ -970,71 +924,111 @@ const RecapView = ({ students, attendanceRecords, onViewDetail }: { students: St
     );
 };
 
-const StudentDetailView = ({ student, records, onBack }: { student: Student; records: AttendanceRecord[]; onBack: () => void }) => {
-    const summary = useMemo(() => {
-        const counts = records.reduce((acc, record) => {
-            acc[record.status] = (acc[record.status] || 0) + 1;
-            return acc;
-        }, {} as Record<AttendanceStatus, number>);
-        const total = records.length;
-        return {
-            hadir: counts.Hadir || 0,
-            sakit: counts.Sakit || 0,
-            izin: counts.Izin || 0,
-            alfa: counts.Alfa || 0,
-            total,
-            presencePercentage: total > 0 ? Math.round(((counts.Hadir || 0) / total) * 100) : 0,
-        };
-    }, [records]);
+const StudentDetailView = ({
+    student,
+    attendanceRecords,
+    onBack
+}: {
+    student: Student | undefined;
+    attendanceRecords: AttendanceRecord[];
+    onBack: () => void;
+}) => {
+    if (!student) {
+        return <div className="text-center p-8">Siswa tidak ditemukan.</div>;
+    }
+
+    const studentRecords = useMemo(() => {
+        return attendanceRecords
+            .filter(r => r.studentId === student.id)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [attendanceRecords, student.id]);
+    
+    const recapData: Omit<RecapData, 'studentId'|'studentName'|'studentClass'> = useMemo(() => {
+        const hadir = studentRecords.filter(r => r.status === AttendanceStatus.Hadir).length;
+        const sakit = studentRecords.filter(r => r.status === AttendanceStatus.Sakit).length;
+        const izin = studentRecords.filter(r => r.status === AttendanceStatus.Izin).length;
+        const alfa = studentRecords.filter(r => r.status === AttendanceStatus.Alfa).length;
+        const totalHours = hadir + sakit + izin + alfa;
+        const presencePercentage = totalHours > 0 ? Math.round((hadir / totalHours) * 100) : 0;
+
+        return { hadir, sakit, izin, alfa, totalHours, presencePercentage };
+    }, [studentRecords]);
+
 
     return (
         <div className="space-y-6">
             <div className="flex items-center gap-4">
-                <Button onClick={onBack} variant="secondary" className="px-3 py-2"><BackIcon/></Button>
-                <div>
-                    <h1 className="text-3xl font-bold text-slate-800">{student.name}</h1>
-                    <p className="text-slate-600">
-                        {student.class}
-                        {student.nis && ` | NIS: ${student.nis}`}
-                        {student.email && ` | Email: ${student.email}`}
-                    </p>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                <Card className="text-center"><p className="text-2xl font-bold">{summary.hadir}</p><p className="text-slate-500">Hadir</p></Card>
-                <Card className="text-center"><p className="text-2xl font-bold">{summary.sakit}</p><p className="text-slate-500">Sakit</p></Card>
-                <Card className="text-center"><p className="text-2xl font-bold">{summary.izin}</p><p className="text-slate-500">Izin</p></Card>
-                <Card className="text-center"><p className="text-2xl font-bold">{summary.alfa}</p><p className="text-slate-500">Alfa</p></Card>
-                <Card className="text-center bg-sekolah-50"><p className="text-2xl font-bold text-sekolah-700">{summary.presencePercentage}%</p><p className="text-sekolah-600">Kehadiran</p></Card>
+                <Button onClick={onBack} variant="secondary">
+                    <BackIcon />
+                    Kembali
+                </Button>
+                <h1 className="text-3xl font-bold text-slate-800">{student.name}</h1>
             </div>
             
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                    <h2 className="text-xl font-bold text-slate-800 mb-4">Detail Siswa</h2>
+                    <div className="space-y-2">
+                        <p><span className="font-semibold">Kelas:</span> {student.class}</p>
+                        <p><span className="font-semibold">NIS:</span> {student.nis || 'Tidak ada'}</p>
+                        <p><span className="font-semibold">Email:</span> {student.email || 'Tidak ada'}</p>
+                    </div>
+                </Card>
+                 <Card>
+                    <h2 className="text-xl font-bold text-slate-800 mb-4">Ringkasan Kehadiran (Total)</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-sm text-slate-500">Hadir</p>
+                            <p className="text-2xl font-bold">{recapData.hadir}</p>
+                        </div>
+                         <div>
+                            <p className="text-sm text-slate-500">Sakit</p>
+                            <p className="text-2xl font-bold">{recapData.sakit}</p>
+                        </div>
+                         <div>
+                            <p className="text-sm text-slate-500">Izin</p>
+                            <p className="text-2xl font-bold">{recapData.izin}</p>
+                        </div>
+                         <div>
+                            <p className="text-sm text-slate-500">Alfa</p>
+                            <p className="text-2xl font-bold">{recapData.alfa}</p>
+                        </div>
+                         <div className="col-span-2">
+                            <p className="text-sm text-slate-500">Persentase Kehadiran</p>
+                            <p className={`text-2xl font-bold ${getPresenceStatus(recapData.presencePercentage).color}`}>{recapData.presencePercentage}%</p>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+
             <Card>
-                <h2 className="text-xl font-bold text-slate-800 mb-4">Riwayat Kehadiran</h2>
-                <div className="max-h-[50vh] overflow-y-auto">
+                <h2 className="text-xl font-bold text-slate-800 mb-4">Riwayat Absensi</h2>
+                <div className="overflow-x-auto max-h-[30rem]">
                     <table className="w-full text-left">
-                        <thead className="border-b bg-slate-50 sticky top-0">
-                            <tr className="border-b">
-                                <th className="p-2">Tanggal</th>
-                                <th className="p-2">Jam Ke-</th>
-                                <th className="p-2">Status</th>
+                        <thead>
+                            <tr className="border-b bg-slate-50">
+                                <th className="p-3 font-semibold">Tanggal</th>
+                                <th className="p-3 font-semibold">Jam Ke-</th>
+                                <th className="p-3 font-semibold">Status</th>
                             </tr>
                         </thead>
                         <tbody>
-                             {records.sort((a,b) => b.date.localeCompare(a.date) || b.lessonHour - a.lessonHour).map(r => (
-                                <tr key={r.id} className="border-b hover:bg-slate-50">
-                                    <td className="p-2">{format(parseISO(r.date), 'd MMM yyyy')}</td>
-                                    <td className="p-2">{r.lessonHour}</td>
-                                    <td className="p-2">
-                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(r.status)}`}>
-                                            {r.status}
+                            {studentRecords.map(record => (
+                                <tr key={record.id} className="border-b hover:bg-slate-50">
+                                    <td className="p-3">{format(parseISO(record.date), 'EEEE, dd MMMM yyyy', { locale: idLocale })}</td>
+                                    <td className="p-3">{record.lessonHour}</td>
+                                    <td className="p-3">
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(record.status)}`}>
+                                            {record.status}
                                         </span>
                                     </td>
                                 </tr>
                             ))}
-                             {records.length === 0 && (
+                            {studentRecords.length === 0 && (
                                 <tr>
-                                    <td colSpan={3} className="text-center p-6 text-slate-500">Belum ada riwayat kehadiran.</td>
+                                    <td colSpan={3} className="text-center p-6 text-slate-500">
+                                        Belum ada riwayat absensi untuk siswa ini.
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
@@ -1042,504 +1036,474 @@ const StudentDetailView = ({ student, records, onBack }: { student: Student; rec
                 </div>
             </Card>
         </div>
-    )
-}
-
-const ToastContainer = ({ toasts, onDismiss }: { toasts: ToastMessage[], onDismiss: (id: number) => void }) => {
-    return (
-        <div className="fixed bottom-4 right-4 z-[9999] w-full max-w-sm space-y-3">
-            {toasts.map(toast => (
-                <div 
-                    key={toast.id} 
-                    className={`flex items-center justify-between p-4 rounded-md shadow-lg text-white animate-fade-in-up ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}
-                >
-                    <p className="font-semibold">{toast.message}</p>
-                    <button onClick={() => onDismiss(toast.id)} className="ml-4 text-xl leading-none">&times;</button>
-                </div>
-            ))}
-        </div>
     );
 };
 
-const Header = ({ onMenuClick }: { onMenuClick: () => void }) => (
-    <header className="bg-white shadow-sm md:hidden p-4 flex items-center">
-        <button onClick={onMenuClick} className="text-slate-600 hover:text-sekolah-700">
-            <MenuIcon />
-        </button>
-        <h1 className="text-lg font-bold text-sekolah-800 ml-4">Absensi Guru</h1>
-    </header>
-);
+const AuthView = ({
+  showToast,
+  onLoginSuccess
+}: {
+  showToast: (type: 'success' | 'error', message: string) => void;
+  onLoginSuccess: () => void;
+}) => {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [authView, setAuthView] = useState<'form' | 'check_email'>('form');
 
-const AuthView = ({ showToast }: { showToast: (type: 'success' | 'error', message: string) => void }) => {
-    const [authStatus, setAuthStatus] = useState<'login' | 'signup' | 'awaiting_confirmation'>('login');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [submittedEmail, setSubmittedEmail] = useState('');
-    const [resendLoading, setResendLoading] = useState(false);
-
-    const handleResendEmail = async () => {
-        if (!submittedEmail) return;
-        setResendLoading(true);
-        try {
-            const { error } = await supabase.auth.resend({
-                type: 'signup',
-                email: submittedEmail,
-            });
-            if (error) throw error;
-            showToast('success', 'Tautan verifikasi baru telah dikirim.');
-        } catch (error: any) {
-            showToast('error', error.error_description || error.message);
-        } finally {
-            setResendLoading(false);
-        }
-    };
-
-    const handleAuth = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        try {
-            if (authStatus === 'login') {
-                const { error } = await supabase.auth.signInWithPassword({ email, password });
-                if (error) throw error;
-                // Success is handled by onAuthStateChange
-            } else { // signup
-                const { data, error } = await supabase.auth.signUp({ email, password });
-                if (error) {
-                    if (error.message.toLowerCase().includes('user already registered')) {
-                        showToast('error', 'Email sudah terdaftar. Silakan masuk atau gunakan email lain.');
-                    } else {
-                        throw error;
-                    }
-                } else if (data.user) {
-                    setSubmittedEmail(email);
-                    setAuthStatus('awaiting_confirmation');
-                    if (data.user.identities?.length === 0) {
-                         showToast('success', 'Email ini sudah terdaftar tapi belum dikonfirmasi. Kami telah mengirim ulang tautan verifikasi.');
-                    } else {
-                         showToast('success', 'Pendaftaran berhasil! Tautan verifikasi telah dikirim ke email Anda.');
-                    }
+  useEffect(() => {
+    let interval: number | undefined;
+    if (resendCooldown > 0) {
+        interval = window.setInterval(() => {
+            setResendCooldown(prev => {
+                if (prev <= 1) {
+                    clearInterval(interval);
+                    return 0;
                 }
-            }
-        } catch (error: any) {
-            if (authStatus === 'login' && error.message?.toLowerCase().includes('email not confirmed')) {
-                // If login fails due to unconfirmed email, resend confirmation and show the relevant screen.
-                await supabase.auth.resend({ type: 'signup', email });
-                setSubmittedEmail(email);
-                setAuthStatus('awaiting_confirmation');
-                showToast('error', 'Email Anda belum diverifikasi. Kami telah mengirim ulang tautan verifikasi.');
-            } else {
-                showToast('error', error.error_description || error.message);
-            }
-        } finally {
-            setLoading(false);
+                return prev - 1;
+            });
+        }, 1000);
+    }
+    return () => {
+        if (interval) {
+            clearInterval(interval);
         }
     };
+  }, [resendCooldown]);
+  
+  const handleResendEmail = async () => {
+    if (resendCooldown > 0) return;
 
-    if (authStatus === 'awaiting_confirmation') {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-100">
-                <div className="w-full max-w-md mx-auto p-4 sm:p-8">
-                    <div className="bg-white shadow-lg rounded-lg p-8 text-center">
-                        <div className="flex justify-center mb-6">
-                            <MailIcon className="w-16 h-16 text-sekolah-500"/>
-                        </div>
-                        <h2 className="text-2xl font-bold text-sekolah-800 mb-2">
-                            Verifikasi Email Anda
-                        </h2>
-                        <p className="text-slate-500 mb-6">
-                            Kami telah mengirimkan tautan konfirmasi ke: <br/>
-                            <strong className="text-slate-700 break-all">{submittedEmail}</strong>
-                        </p>
-                        <p className="text-sm text-slate-500">
-                            Silakan periksa kotak masuk Anda (termasuk folder spam) dan klik tautan tersebut untuk menyelesaikan pendaftaran.
-                        </p>
-                        <div className="mt-8 space-y-4">
-                             <Button
-                                onClick={handleResendEmail}
-                                variant="secondary"
-                                className="w-full"
-                                isLoading={resendLoading}
-                                disabled={resendLoading}
-                            >
-                                Kirim Ulang Email
-                            </Button>
-                            <button
-                                onClick={() => setAuthStatus('login')}
-                                className="font-medium text-sekolah-600 hover:text-sekolah-500 text-sm"
-                            >
-                                &larr; Kembali ke Login
-                            </button>
-                        </div>
-                    </div>
-                    <p className="text-center text-xs text-slate-400 mt-6">&copy; {new Date().getFullYear()} Aplikasi Absensi Guru</p>
-                </div>
-            </div>
-        );
+    setIsResending(true);
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
+
+    if (error) {
+        showToast('error', `Gagal mengirim ulang: ${error.message}`);
+    } else {
+        showToast('success', `Email verifikasi baru telah dikirim ke ${email}.`);
+        setResendCooldown(60);
     }
+    setIsResending(false);
+  };
 
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (mode === 'signup' && !fullName.trim()) {
+        showToast('error', 'Nama Lengkap Guru wajib diisi.');
+        return;
+    }
+    setIsLoading(true);
+
+    const authMethod = mode === 'signup'
+      ? supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+              data: {
+                  full_name: fullName.trim()
+              }
+          }
+        })
+      : supabase.auth.signInWithPassword({ email, password });
+
+    const { data, error } = await authMethod;
+
+    if (error) {
+      showToast('error', error.message);
+    } else if (mode === 'signup' && data.user) {
+        if(data.user.identities?.length === 0) {
+            // User already exists but is not confirmed. Resend email.
+            await supabase.auth.resend({ type: 'signup', email: email });
+            setAuthView('check_email');
+        } else {
+            setAuthView('check_email');
+            showToast('success', 'Pendaftaran berhasil! Silakan cek email Anda untuk verifikasi.');
+        }
+    } else if (mode === 'signin' && data.user) {
+      // onLoginSuccess will be called by onAuthStateChange listener
+    }
+    setIsLoading(false);
+  };
+
+  if (authView === 'check_email') {
     return (
-        <div className="flex items-center justify-center min-h-screen bg-slate-100">
-            <div className="w-full max-w-md mx-auto p-4 sm:p-8">
-                <div className="bg-white shadow-lg rounded-lg p-8">
-                    <h2 className="text-2xl font-bold text-center text-sekolah-800 mb-2">
-                        {authStatus === 'login' ? 'Selamat Datang Kembali' : 'Buat Akun Baru'}
-                    </h2>
-                    <p className="text-center text-slate-500 mb-6">
-                        {authStatus === 'login' ? 'Masuk untuk melanjutkan' : 'Daftar untuk mulai mengelola absensi'}
-                    </p>
-                    <form onSubmit={handleAuth} className="space-y-6">
-                        <div>
-                            <label htmlFor="email" className="block text-sm font-medium text-slate-700">Email</label>
-                            <input
-                                id="email"
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"
-                                required
-                                disabled={loading}
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="password"className="block text-sm font-medium text-slate-700">Password</label>
-                            <input
-                                id="password"
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"
-                                required
-                                disabled={loading}
-                            />
-                        </div>
-                        <Button type="submit" className="w-full" isLoading={loading} disabled={loading}>
-                            {authStatus === 'login' ? 'Masuk' : 'Daftar'}
-                        </Button>
-                    </form>
-                    <p className="mt-6 text-center text-sm">
-                        {authStatus === 'login' ? 'Belum punya akun? ' : 'Sudah punya akun? '}
-                        <button
-                            onClick={() => {
-                                setEmail('');
-                                setPassword('');
-                                setAuthStatus(authStatus === 'login' ? 'signup' : 'login')
-                            }}
-                            className="font-medium text-sekolah-600 hover:text-sekolah-500"
-                            disabled={loading}
-                        >
-                            {authStatus === 'login' ? 'Daftar di sini' : 'Masuk di sini'}
-                        </button>
-                    </p>
-                </div>
-                 <p className="text-center text-xs text-slate-400 mt-6">&copy; {new Date().getFullYear()} Aplikasi Absensi Guru</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+        <div className="max-w-md w-full text-center p-8 space-y-6 bg-white shadow-lg rounded-lg">
+            <MailIcon className="mx-auto text-sekolah-500 w-24 h-24"/>
+            <h1 className="text-3xl font-bold text-slate-800">Verifikasi Email Anda</h1>
+            <p className="text-slate-600">
+                Kami telah mengirimkan tautan verifikasi ke <span className="font-bold text-slate-800">{email}</span>. Silakan klik tautan tersebut untuk menyelesaikan pendaftaran.
+            </p>
+            <div className="pt-4 space-y-3">
+              <Button
+                onClick={handleResendEmail}
+                isLoading={isResending}
+                disabled={isResending || resendCooldown > 0}
+                className="w-full"
+              >
+                {resendCooldown > 0 ? `Kirim Ulang dalam ${resendCooldown}s` : 'Kirim Ulang Email Verifikasi'}
+              </Button>
+              <Button
+                onClick={() => setAuthView('form')}
+                variant="secondary"
+                className="w-full"
+                disabled={isResending}
+              >
+                Salah Email? Kembali
+              </Button>
             </div>
+            <p className="text-sm text-slate-500 !mt-6">
+              Tidak menerima email? Cek folder spam Anda atau coba kirim ulang.
+            </p>
+            <p className="text-sm text-slate-500">
+              Halaman ini akan diperbarui secara otomatis setelah verifikasi selesai.
+            </p>
         </div>
+      </div>
     );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
+      <div className="max-w-md w-full space-y-8 p-8 bg-white shadow-xl rounded-lg">
+        <div className="text-center">
+          <h2 className="text-3xl font-bold text-slate-900">
+            Selamat Datang Bapak/Ibu Guru
+          </h2>
+          <p className="mt-4 text-xl font-semibold text-sekolah-700">
+            Madrasah Aliyah Darul Inayah
+          </p>
+          <p className="mt-8 text-sm text-slate-600">
+            {mode === 'signin' ? 'Silakan masuk, atau ' : 'Silakan daftar, atau '}
+            <button
+              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+              className="font-medium text-sekolah-600 hover:text-sekolah-500"
+            >
+              {mode === 'signin' ? 'buat akun baru' : 'masuk di sini'}
+            </button>
+          </p>
+        </div>
+
+        <form className="mt-8 space-y-6" onSubmit={handleEmailAuth}>
+          <div className="rounded-md shadow-sm -space-y-px">
+            {mode === 'signup' && (
+              <div>
+                <label htmlFor="full-name" className="sr-only">Nama Lengkap Guru</label>
+                <input
+                  id="full-name"
+                  name="fullName"
+                  type="text"
+                  required
+                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 rounded-t-md focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 focus:z-10 sm:text-sm"
+                  placeholder="Nama Lengkap Guru"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+              </div>
+            )}
+            <div>
+              <label htmlFor="email-address" className="sr-only">Alamat email</label>
+              <input
+                id="email-address"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                className={`appearance-none rounded-none relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 ${mode === 'signin' ? 'rounded-t-md' : ''} focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 focus:z-10 sm:text-sm`}
+                placeholder="Alamat email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="sr-only">Password</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 rounded-b-md focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 focus:z-10 sm:text-sm"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <Button
+              type="submit"
+              variant="primary"
+              className="w-full"
+              isLoading={isLoading}
+            >
+              {mode === 'signin' ? 'Masuk' : 'Daftar'}
+            </Button>
+          </div>
+        </form>
+      </div>
+      <div className="text-center mt-6 text-slate-500 text-xs max-w-lg px-4">
+          <p>Jln. Cipeusing No. 120 Rt. 004 Rw. 004 Ds. Kertawangi Kec. Cisarua Kab. Bandung Barat - Jawa Barat 40551</p>
+      </div>
+    </div>
+  );
 };
 
 
 // --- MAIN APP COMPONENT ---
-const MainApp = ({ session }: { session: Session }) => {
-    const [view, setView] = useState<View>('dashboard');
+const App = () => {
+    const [session, setSession] = useState<Session | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [currentView, setCurrentView] = useState<View>('dashboard');
+    const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
     const [students, setStudents] = useState<Student[]>([]);
     const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-    const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
-    const [isSidebarOpen, setSidebarOpen] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-    const showToast = (type: 'success' | 'error', message: string) => {
+    const showToast = useCallback((type: 'success' | 'error', message: string) => {
         const id = Date.now();
-        setToasts(prev => [...prev, { id, type, message }]);
+        setToasts(prev => [...prev, { id, message, type }]);
         setTimeout(() => {
             setToasts(prev => prev.filter(t => t.id !== id));
         }, 5000);
-    };
-
-    const dismissToast = (id: number) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-    };
-
+    }, []);
+    
     const fetchData = useCallback(async () => {
-        setLoading(true);
-        setError(null);
+        setIsLoading(true);
         try {
             const { data: studentsData, error: studentsError } = await supabase
                 .from('students')
                 .select('*')
                 .order('name', { ascending: true });
+            
             if (studentsError) throw studentsError;
+            setStudents(studentsData || []);
 
             const { data: attendanceData, error: attendanceError } = await supabase
                 .from('attendance_records')
                 .select('*');
+            
             if (attendanceError) throw attendanceError;
+            setAttendanceRecords((attendanceData || []).map(ar => ({
+                id: ar.id,
+                studentId: ar.student_id,
+                date: ar.date,
+                lessonHour: ar.lesson_hour,
+                status: ar.status as AttendanceStatus
+            })));
 
-            setStudents(studentsData || []);
-            const mappedAttendanceRecords: AttendanceRecord[] = (attendanceData || []).map(r => ({
-                id: r.id,
-                studentId: r.student_id,
-                date: r.date,
-                lessonHour: r.lesson_hour,
-                status: r.status as AttendanceStatus,
-            }));
-            setAttendanceRecords(mappedAttendanceRecords);
-        } catch (err: any) {
-            console.error("Error fetching data:", err);
-            let errorMessage = "Terjadi kesalahan yang tidak diketahui.";
-            if (err && err.message) {
-                errorMessage = err.message;
-                if (err.message.includes("violates row-level security policy")) {
-                    errorMessage += " (Kebijakan Keamanan Tingkat Baris (RLS) mungkin belum diatur. Silakan periksa pengaturan Policies di dashboard Supabase Anda.)";
-                }
-            } else {
-                errorMessage = JSON.stringify(err);
-            }
-            setError(`Gagal memuat data: ${errorMessage}. Pastikan koneksi dan konfigurasi Supabase sudah benar.`);
-            showToast('error', `Gagal memuat data. Periksa konsol untuk detail.`);
+        } catch (error: any) {
+            showToast('error', `Gagal memuat data: ${error.message}`);
         } finally {
-            setLoading(false);
+            setIsLoading(false);
         }
-    }, []);
+    }, [showToast]);
 
     useEffect(() => {
-        fetchData();
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+            if (session) {
+                fetchData();
+            } else {
+                setIsLoading(false);
+            }
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+             if (_event === 'SIGNED_IN') {
+                fetchData();
+            }
+        });
+
+        return () => subscription.unsubscribe();
     }, [fetchData]);
-
-    const handleAddStudent = async (studentData: Omit<Student, 'id'>) => {
-        const studentToInsert = { ...studentData, user_id: session.user.id, email: studentData.email === '' ? null : studentData.email };
-        const { data, error } = await supabase.from('students').insert([studentToInsert]).select().single();
-        if (error) throw new Error(error.message);
-        if (data) {
-           setStudents(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-        }
+    
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        setStudents([]);
+        setAttendanceRecords([]);
+        setCurrentView('dashboard');
     };
 
-    const handleUpdateStudent = async (updatedStudent: Student) => {
-        const { id, ...updateData } = updatedStudent;
-        const studentToUpdate = { ...updateData, email: updateData.email === '' ? null : updateData.email };
-        const { data, error } = await supabase.from('students').update(studentToUpdate).eq('id', id).select().single();
-        if (error) throw new Error(error.message);
-        if(data) {
-            setStudents(prev => prev.map(s => s.id === data.id ? data : s));
-        }
+    const handleAddStudent = async (student: Omit<Student, 'id'>) => {
+        const { data, error } = await supabase.from('students').insert({ 
+            name: student.name,
+            class: student.class,
+            nis: student.nis,
+            email: student.email || null,
+        }).select().single();
+        if (error) throw error;
+        if(data) await fetchData();
     };
 
+    const handleUpdateStudent = async (student: Student) => {
+        const { error } = await supabase.from('students').update({
+            name: student.name,
+            class: student.class,
+            nis: student.nis,
+            email: student.email || null,
+        }).eq('id', student.id);
+        if (error) throw error;
+        await fetchData();
+    };
+    
     const handleDeleteStudent = async (id: number) => {
         const { error } = await supabase.from('students').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-        setStudents(prev => prev.filter(s => s.id !== id));
-        setAttendanceRecords(prev => prev.filter(r => r.studentId !== id));
+        if (error) throw error;
+        await fetchData();
     };
     
     const handleImportStudents = async (newStudents: Omit<Student, 'id'>[]) => {
-        const studentsWithUserId = newStudents.map(student => ({
-            ...student,
-            user_id: session.user.id,
-            email: student.email === '' ? null : student.email,
+        const payload = newStudents.map(s => ({
+            name: s.name,
+            class: s.class,
+            nis: s.nis,
+            email: s.email || null,
         }));
-        const { data, error } = await supabase.from('students').insert(studentsWithUserId).select();
-        if (error) {
-            throw new Error(error.message);
-        }
-        if (data) {
-            await fetchData(); // Refresh all data to ensure consistency
-        }
+        const { error } = await supabase.from('students').insert(payload);
+        if (error) throw error;
+        await fetchData();
     };
 
-    const handleSaveClassAttendance = async (records: Omit<AttendanceRecord, 'id'>[]): Promise<boolean> => {
-        try {
-            const recordsToUpsert = records.map(r => ({
-                student_id: r.studentId,
-                date: r.date,
-                lesson_hour: r.lessonHour,
-                status: r.status,
-                user_id: session.user.id,
-            }));
-
-            const { data, error } = await supabase.from('attendance_records').upsert(recordsToUpsert, { onConflict: 'student_id,date,lesson_hour,user_id' }).select();
-            if (error || !data) throw error || new Error('Data tidak kembali setelah upsert.');
-
-            const newRecords: AttendanceRecord[] = data.map(r => ({
-                id: r.id,
-                studentId: r.student_id,
-                date: r.date,
-                lessonHour: r.lesson_hour,
-                status: r.status as AttendanceStatus,
-            }));
+    const handleSaveClassAttendance = async (records: Pick<AttendanceRecord, 'studentId' | 'date' | 'lessonHour' | 'status'>[]) => {
+       // Defensive check on the client-side, though the main logic is in the DB function.
+       for (const record of records) {
+           if (!record.date || !record.studentId || !record.lessonHour || !record.status) {
+               const errorMessage = `Data absensi tidak lengkap. Data: ${JSON.stringify(record)}`;
+               showToast('error', errorMessage);
+               throw new Error(errorMessage);
+           }
+       }
+       
+       try {
+            const { error } = await supabase.rpc('save_class_attendance', { records_json: records });
+            if (error) {
+                // Throw the error so the component can catch it and show the toast
+                throw error;
+            }
+            await fetchData();
+        } catch (err: any) {
+            console.error('Gagal menyimpan absensi (full error object):', err);
             
-            setAttendanceRecords(prev => {
-                const updatedRecords = [...prev];
-                const newRecordsMap = new Map(newRecords.map(r => [`${r.studentId}-${r.date}-${r.lessonHour}`, r]));
-
-                newRecordsMap.forEach((newRecord, key) => {
-                    const existingIndex = updatedRecords.findIndex(r => `${r.studentId}-${r.date}-${r.lessonHour}` === key);
-                    if (existingIndex > -1) {
-                        updatedRecords[existingIndex] = newRecord;
-                    } else {
-                        updatedRecords.push(newRecord);
-                    }
-                });
-                return updatedRecords;
-            });
-            return true;
-        } catch (err) {
-            console.error("Error saving class attendance:", err);
-            return false;
+            // Extract the most helpful error message
+            const errorMessage = err?.details || err?.message || "Terjadi kesalahan yang tidak diketahui saat menyimpan.";
+            
+            showToast('error', `Gagal menyimpan absensi: ${errorMessage}`);
+            // Re-throw to signal failure to the caller if needed
+            throw new Error(errorMessage);
         }
     };
 
-    const handleViewStudentDetail = (id: number) => {
-        setSelectedStudentId(id);
-        setView('studentDetail');
+    const handleViewChange = (view: View) => {
+        setCurrentView(view);
+        setIsSidebarOpen(false);
     };
     
-    const handleLogout = async () => {
-        showToast('success', 'Anda telah berhasil keluar.');
-        await supabase.auth.signOut();
+    const handleViewDetail = (id: number) => {
+        setSelectedStudentId(id);
+        setCurrentView('studentDetail');
     };
 
+    const NavLink = ({ view, icon, label }: { view: View; icon: React.ReactElement<{ className?: string }>; label: string; }) => (
+        <button
+            onClick={() => handleViewChange(view)}
+            className={`flex items-center w-full p-3 rounded-lg transition-colors text-left ${currentView === view ? 'bg-sekolah-800 text-white' : 'text-slate-300 hover:bg-sekolah-600 hover:text-white'}`}
+        >
+            {React.cloneElement(icon, { className: 'w-5 h-5 mr-3' })}
+            <span className="font-medium">{label}</span>
+        </button>
+    );
+
+    if (isLoading && !session) {
+        return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-16 w-16 border-t-4 border-sekolah-600"></div></div>;
+    }
+
+    if (!session) {
+        return <AuthView showToast={showToast} onLoginSuccess={fetchData} />;
+    }
+    
+    const userFullName = session.user.user_metadata?.full_name || session.user.email?.split('@')[0];
+
     const renderView = () => {
-        if (loading) {
-            return <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-sekolah-600"></div></div>;
-        }
-        if (error) {
-            return (
-                <Card className="m-6 bg-red-50 border-red-200 border">
-                    <h2 className="text-xl font-bold text-red-800">Error</h2>
-                    <p className="text-red-700 mt-2">{error}</p>
-                    <Button onClick={fetchData} className="mt-4">Coba Lagi</Button>
-                </Card>
-            );
-        }
+        const selectedStudent = students.find(s => s.id === selectedStudentId);
 
-        const selectedStudentForDetail = students.find(s => s.id === selectedStudentId);
-
-        switch (view) {
+        switch (currentView) {
             case 'dashboard':
                 return <DashboardView students={students} attendanceRecords={attendanceRecords} onImport={handleImportStudents} showToast={showToast} />;
             case 'students':
-                return <StudentManagementView students={students} onAdd={handleAddStudent} onUpdate={handleUpdateStudent} onDelete={handleDeleteStudent} onImport={handleImportStudents} onViewDetail={handleViewStudentDetail} showToast={showToast} />;
+                return <StudentManagementView students={students} onAdd={handleAddStudent} onUpdate={handleUpdateStudent} onDelete={handleDeleteStudent} onImport={handleImportStudents} onViewDetail={handleViewDetail} showToast={showToast} />;
             case 'attendance':
-                return <ClassAttendanceView students={students} attendanceRecords={attendanceRecords} onSave={handleSaveClassAttendance} showToast={showToast} />;
+                return <AttendanceView students={students} attendanceRecords={attendanceRecords} onSave={handleSaveClassAttendance} showToast={showToast} />;
             case 'recap':
-                return <RecapView students={students} attendanceRecords={attendanceRecords} onViewDetail={handleViewStudentDetail} />;
+                return <RecapView students={students} attendanceRecords={attendanceRecords} />;
             case 'studentDetail':
-                if (selectedStudentForDetail) {
-                    return <StudentDetailView student={selectedStudentForDetail} records={attendanceRecords.filter(r => r.studentId === selectedStudentId)} onBack={() => setView('students')}/>;
-                }
-                setView('students'); // Go back if student not found
-                return null;
+                return <StudentDetailView student={selectedStudent} attendanceRecords={attendanceRecords} onBack={() => handleViewChange('students')} />;
             default:
                 return <DashboardView students={students} attendanceRecords={attendanceRecords} onImport={handleImportStudents} showToast={showToast} />;
         }
     };
-    
-    const menuItems: { name: View, label: string, icon: React.ReactNode }[] = [
-        { name: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
-        { name: 'students', label: 'Manajemen Siswa', icon: <StudentsIcon /> },
-        { name: 'attendance', label: 'Absensi Kelas', icon: <AttendanceIcon /> },
-        { name: 'recap', label: 'Rekap Kehadiran', icon: <RecapIcon /> },
-    ];
-    
+
     return (
         <div className="flex h-screen bg-slate-100">
             {/* Sidebar */}
-             <aside className={`absolute md:relative z-20 md:z-auto bg-sekolah-900 text-white w-64 min-h-screen p-4 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-                <div className="flex justify-between items-center mb-10">
-                    <h1 className="text-2xl font-bold">Absensi</h1>
-                    <button onClick={() => setSidebarOpen(false)} className="md:hidden text-white hover:text-sekolah-200">
-                       <CloseIcon />
+            <aside className={`absolute md:relative z-20 md:z-auto bg-sekolah-900 text-white w-64 p-4 flex flex-col space-y-4 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out`}>
+                <div className="flex items-center justify-between">
+                     <h1 className="text-2xl font-bold text-white">MA Darul Inayah</h1>
+                     <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-white p-1">
+                        <CloseIcon />
                     </button>
                 </div>
-                <nav className="flex-grow">
-                    <ul>
-                         {menuItems.map(item => (
-                            <li key={item.name} className="mb-2">
-                                <a 
-                                    href="#" 
-                                    onClick={(e) => { e.preventDefault(); setView(item.name); setSidebarOpen(false); }}
-                                    className={`flex items-center gap-3 p-3 rounded-md transition-colors ${view === item.name ? 'bg-sekolah-700' : 'hover:bg-sekolah-800'}`}
-                                >
-                                    {item.icon}
-                                    <span className="font-semibold">{item.label}</span>
-                                </a>
-                            </li>
-                        ))}
-                    </ul>
+                <nav className="flex-grow space-y-2">
+                    <NavLink view="dashboard" icon={<DashboardIcon />} label="Dashboard" />
+                    <NavLink view="students" icon={<StudentsIcon />} label="Manajemen Siswa" />
+                    <NavLink view="attendance" icon={<AttendanceIcon />} label="Input Absensi" />
+                    <NavLink view="recap" icon={<RecapIcon />} label="Rekapitulasi" />
                 </nav>
-                <div className="mt-auto">
-                   <div className="border-t border-sekolah-700 pt-4">
-                        <p className="text-sm text-sekolah-300 truncate" title={session.user.email}>{session.user.email}</p>
-                        <Button onClick={handleLogout} variant="secondary" className="w-full mt-4 bg-sekolah-800 hover:bg-sekolah-700 text-white">
-                           <LogoutIcon /> Keluar
-                        </Button>
-                   </div>
+                <div className="pt-4 border-t border-sekolah-700">
+                    <div className="mb-2">
+                      <div className="font-semibold text-white truncate" title={userFullName || ''}>{userFullName}</div>
+                      <div className="text-sm text-slate-400 truncate" title={session.user.email || ''}>{session.user.email}</div>
+                    </div>
+                    <Button onClick={handleLogout} variant="secondary" className="w-full text-sekolah-800"><LogoutIcon/> Logout</Button>
                 </div>
             </aside>
             
             <div className="flex-1 flex flex-col overflow-hidden">
-                <Header onMenuClick={() => setSidebarOpen(true)} />
-                <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100 p-4 md:p-6 lg:p-8">
-                    {renderView()}
+                 {/* Top bar for mobile */}
+                <header className="md:hidden bg-white shadow-md p-4 flex justify-between items-center">
+                    <button onClick={() => setIsSidebarOpen(true)} className="text-slate-600">
+                        <MenuIcon />
+                    </button>
+                    <h2 className="text-lg font-bold text-slate-800 capitalize">{currentView.replace('studentDetail', 'Detail Siswa')}</h2>
+                    <div></div>
+                </header>
+
+                {/* Main Content */}
+                <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 lg:p-8">
+                    {isLoading ? (
+                        <div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-4 border-sekolah-600"></div></div>
+                    ) : (
+                        renderView()
+                    )}
                 </main>
             </div>
             
-            <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+             {/* Toast Container */}
+            <div className="fixed bottom-4 right-4 z-50 w-full max-w-xs space-y-2">
+                {toasts.map(toast => (
+                    <div key={toast.id} className={`p-4 rounded-md shadow-lg text-white ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                        {toast.message}
+                    </div>
+                ))}
+            </div>
         </div>
     );
 };
-
-
-const App = () => {
-    const [session, setSession] = useState<Session | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-    useEffect(() => {
-        const getSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            setSession(session);
-            setLoading(false);
-        };
-        getSession();
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            if (_event === 'SIGNED_IN' && session) {
-                 showToast('success', 'Berhasil masuk!');
-            }
-            setSession(session);
-        });
-
-        return () => subscription.unsubscribe();
-    }, []);
-    
-     const showToast = (type: 'success' | 'error', message: string) => {
-        const id = Date.now();
-        setToasts(prev => [...prev, { id, type, message }]);
-        setTimeout(() => {
-            setToasts(prev => prev.filter(t => t.id !== id));
-        }, 5000);
-    };
-    
-    const dismissToast = (id: number) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-    };
-
-
-    if (loading) {
-        return <div className="flex items-center justify-center min-h-screen bg-slate-100"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-sekolah-600"></div></div>;
-    }
-    
-    return (
-        <>
-            {!session ? <AuthView showToast={showToast} /> : <MainApp session={session} />}
-            <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-        </>
-    );
-};
-
 
 export default App;

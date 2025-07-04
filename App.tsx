@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Student, AttendanceRecord, AttendanceStatus, View, RecapData, ToastMessage } from './types';
 import { endOfWeek } from 'date-fns/endOfWeek';
@@ -79,6 +80,7 @@ const BackIcon = ({ className = 'w-5 h-5' }: { className?: string }) => <svg xml
 const MenuIcon = ({ className = 'w-6 h-6' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>;
 const CloseIcon = ({ className = 'w-6 h-6' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 const LogoutIcon = ({ className = 'w-5 h-5' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>;
+const SearchIcon = ({ className = 'w-5 h-5' }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg>;
 
 
 // --- REUSABLE UI COMPONENTS ---
@@ -176,7 +178,7 @@ const StudentForm = ({
       </div>
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-slate-700">Email (Opsional)</label>
-        <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500" disabled={isSubmitting} />
+        <input type="email" id="email" value={email ?? ''} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500" disabled={isSubmitting} />
       </div>
       <div className="flex justify-end gap-4 pt-4">
         <Button onClick={onCancel} variant="secondary" type="button" disabled={isSubmitting}>Batal</Button>
@@ -229,7 +231,7 @@ const QuickStudentUploader = ({ onImport, showToast }: { onImport: (students: Om
                     name: name,
                     class: className.trim(),
                     nis: '',
-                    email: '',
+                    email: null,
                 }));
 
                 await onImport(newStudents);
@@ -407,7 +409,17 @@ const StudentManagementView = ({
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
     const [importPreview, setImportPreview] = useState<{ students: Omit<Student, 'id'>[]; fileName: string } | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const filteredStudents = useMemo(() => {
+        if (!searchQuery.trim()) {
+            return students;
+        }
+        return students.filter(student =>
+            student.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+        );
+    }, [students, searchQuery]);
 
     const handleEditClick = (student: Student) => {
         setSelectedStudent(student);
@@ -459,7 +471,7 @@ const StudentManagementView = ({
                     name: String(row.Nama || '').trim(),
                     class: String(row.Kelas || '').trim(),
                     nis: String(row.NIS || '').trim(),
-                    email: String(row.Email || '').trim(),
+                    email: String(row.Email || '').trim() || null,
                 })).filter(s => s.name && s.class);
 
                 if (newStudents.length > 0) {
@@ -497,9 +509,21 @@ const StudentManagementView = ({
         <div className="space-y-6">
             <div className="flex flex-wrap justify-between items-center gap-4">
                 <h1 className="text-3xl font-bold text-slate-800">Manajemen Siswa</h1>
-                <div className="flex flex-wrap gap-2">
-                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
-                    <Button onClick={() => fileInputRef.current?.click()} variant="secondary"><UploadIcon /> Impor Excel</Button>
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-grow sm:flex-grow-0">
+                         <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                            <SearchIcon className="h-5 w-5 text-slate-400" />
+                        </span>
+                        <input
+                            type="text"
+                            placeholder="Cari nama siswa..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="w-full sm:w-64 block px-3 py-2 pl-10 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500"
+                        />
+                    </div>
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" id="student-import-input" />
+                    <Button onClick={() => document.getElementById('student-import-input')?.click()} variant="secondary"><UploadIcon /> Impor Excel</Button>
                     <Button onClick={() => setModal('add')}><PlusIcon /> Tambah Siswa</Button>
                 </div>
             </div>
@@ -517,7 +541,7 @@ const StudentManagementView = ({
                             </tr>
                         </thead>
                         <tbody>
-                            {students.map(student => (
+                            {filteredStudents.map(student => (
                                 <tr key={student.id} className="border-b hover:bg-slate-50">
                                     <td className="p-3 font-medium text-sekolah-700 cursor-pointer hover:underline" onClick={() => onViewDetail(student.id)}>{student.name}</td>
                                     <td className="p-3">{student.class}</td>
@@ -531,9 +555,11 @@ const StudentManagementView = ({
                                     </td>
                                 </tr>
                             ))}
-                             {students.length === 0 && (
+                             {filteredStudents.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="text-center p-6 text-slate-500">Belum ada data siswa.</td>
+                                    <td colSpan={5} className="text-center p-6 text-slate-500">
+                                       {searchQuery ? `Tidak ada siswa yang cocok dengan pencarian "${searchQuery}".` : "Belum ada data siswa."}
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
@@ -1196,7 +1222,8 @@ const MainApp = ({ session }: { session: Session }) => {
     }, [fetchData]);
 
     const handleAddStudent = async (studentData: Omit<Student, 'id'>) => {
-        const { data, error } = await supabase.from('students').insert([studentData]).select().single();
+        const studentToInsert = { ...studentData, user_id: session.user.id, email: studentData.email === '' ? null : studentData.email };
+        const { data, error } = await supabase.from('students').insert([studentToInsert]).select().single();
         if (error) throw new Error(error.message);
         if (data) {
            setStudents(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
@@ -1205,7 +1232,8 @@ const MainApp = ({ session }: { session: Session }) => {
 
     const handleUpdateStudent = async (updatedStudent: Student) => {
         const { id, ...updateData } = updatedStudent;
-        const { data, error } = await supabase.from('students').update(updateData).eq('id', id).select().single();
+        const studentToUpdate = { ...updateData, email: updateData.email === '' ? null : updateData.email };
+        const { data, error } = await supabase.from('students').update(studentToUpdate).eq('id', id).select().single();
         if (error) throw new Error(error.message);
         if(data) {
             setStudents(prev => prev.map(s => s.id === data.id ? data : s));
@@ -1220,11 +1248,18 @@ const MainApp = ({ session }: { session: Session }) => {
     };
     
     const handleImportStudents = async (newStudents: Omit<Student, 'id'>[]) => {
-        const { error } = await supabase.from('students').insert(newStudents);
+        const studentsWithUserId = newStudents.map(student => ({
+            ...student,
+            user_id: session.user.id,
+            email: student.email === '' ? null : student.email,
+        }));
+        const { data, error } = await supabase.from('students').insert(studentsWithUserId).select();
         if (error) {
             throw new Error(error.message);
         }
-        await fetchData(); // Refresh all data
+        if (data) {
+            await fetchData(); // Refresh all data to ensure consistency
+        }
     };
 
     const handleSaveClassAttendance = async (records: Omit<AttendanceRecord, 'id'>[]): Promise<boolean> => {
@@ -1234,6 +1269,7 @@ const MainApp = ({ session }: { session: Session }) => {
                 date: r.date,
                 lesson_hour: r.lessonHour,
                 status: r.status,
+                user_id: session.user.id,
             }));
 
             const { data, error } = await supabase.from('attendance_records').upsert(recordsToUpsert, { onConflict: 'student_id,date,lesson_hour,user_id' }).select();
@@ -1246,10 +1282,11 @@ const MainApp = ({ session }: { session: Session }) => {
                 lessonHour: r.lesson_hour,
                 status: r.status as AttendanceStatus,
             }));
-
+            
             setAttendanceRecords(prev => {
                 const updatedRecords = [...prev];
                 const newRecordsMap = new Map(newRecords.map(r => [`${r.studentId}-${r.date}-${r.lessonHour}`, r]));
+
                 newRecordsMap.forEach((newRecord, key) => {
                     const existingIndex = updatedRecords.findIndex(r => `${r.studentId}-${r.date}-${r.lessonHour}` === key);
                     if (existingIndex > -1) {
@@ -1261,32 +1298,38 @@ const MainApp = ({ session }: { session: Session }) => {
                 return updatedRecords;
             });
             return true;
-        } catch (err: any) {
-            console.error("Gagal menyimpan absensi:", err)
+        } catch (err) {
+            console.error("Error saving class attendance:", err);
             return false;
         }
     };
 
-
     const handleViewStudentDetail = (id: number) => {
         setSelectedStudentId(id);
         setView('studentDetail');
-    }
-    
-    const changeView = (newView: View) => {
-        setView(newView);
-        setSidebarOpen(false);
-    }
+    };
     
     const handleLogout = async () => {
-        showToast('success', 'Anda telah keluar.');
+        showToast('success', 'Anda telah berhasil keluar.');
         await supabase.auth.signOut();
-    }
-
-    const selectedStudent = useMemo(() => students.find(s => s.id === selectedStudentId), [students, selectedStudentId]);
-    const selectedStudentRecords = useMemo(() => attendanceRecords.filter(r => r.studentId === selectedStudentId), [attendanceRecords, selectedStudentId]);
+    };
 
     const renderView = () => {
+        if (loading) {
+            return <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-sekolah-600"></div></div>;
+        }
+        if (error) {
+            return (
+                <Card className="m-6 bg-red-50 border-red-200 border">
+                    <h2 className="text-xl font-bold text-red-800">Error</h2>
+                    <p className="text-red-700 mt-2">{error}</p>
+                    <Button onClick={fetchData} className="mt-4">Coba Lagi</Button>
+                </Card>
+            );
+        }
+
+        const selectedStudentForDetail = students.find(s => s.id === selectedStudentId);
+
         switch (view) {
             case 'dashboard':
                 return <DashboardView students={students} attendanceRecords={attendanceRecords} onImport={handleImportStudents} showToast={showToast} />;
@@ -1297,120 +1340,84 @@ const MainApp = ({ session }: { session: Session }) => {
             case 'recap':
                 return <RecapView students={students} attendanceRecords={attendanceRecords} onViewDetail={handleViewStudentDetail} />;
             case 'studentDetail':
-                if (selectedStudent) {
-                    return <StudentDetailView student={selectedStudent} records={selectedStudentRecords} onBack={() => changeView('students')} />;
+                if (selectedStudentForDetail) {
+                    return <StudentDetailView student={selectedStudentForDetail} records={attendanceRecords.filter(r => r.studentId === selectedStudentId)} onBack={() => setView('students')}/>;
                 }
-                 changeView('students'); // Go back if student not found
+                setView('students'); // Go back if student not found
                 return null;
             default:
                 return <DashboardView students={students} attendanceRecords={attendanceRecords} onImport={handleImportStudents} showToast={showToast} />;
         }
     };
     
-    const NavLink = ({ targetView, icon, label }: { targetView: View; icon: React.ReactNode; label: string }) => (
-         <button onClick={() => changeView(targetView)} className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors w-full text-left ${view === targetView ? 'bg-sekolah-700 text-white' : 'text-sekolah-100 hover:bg-sekolah-600 hover:text-white'}`}>
-            {icon}
-            {label}
-        </button>
-    );
+    const menuItems: { name: View, label: string, icon: React.ReactNode }[] = [
+        { name: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+        { name: 'students', label: 'Manajemen Siswa', icon: <StudentsIcon /> },
+        { name: 'attendance', label: 'Absensi Kelas', icon: <AttendanceIcon /> },
+        { name: 'recap', label: 'Rekap Kehadiran', icon: <RecapIcon /> },
+    ];
     
-    const SidebarContent = () => (
-        <>
-            <div className="text-center py-4 mb-4">
-                <h1 className="text-xl font-bold">Absensi Guru</h1>
-                <p className="text-xs text-sekolah-200">Versi 3.0 (Multi-User)</p>
-            </div>
-            <p className="px-3 text-xs text-sekolah-300 truncate mb-4" title={session.user.email}>{session.user.email}</p>
-        </>
-    );
-
-    if (loading) {
-        return (
-            <div className="flex h-screen w-full items-center justify-center bg-slate-100">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-sekolah-600"></div>
-                    <p className="text-xl font-semibold text-slate-600">Memuat data Anda...</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="flex h-screen w-full items-center justify-center bg-red-50 p-4">
-                <div className="text-center max-w-lg">
-                    <h2 className="text-2xl font-bold text-red-700">Terjadi Kesalahan</h2>
-                    <p className="text-red-600 mt-2 bg-red-100 p-3 rounded-md">{error}</p>
-
-                    <Button onClick={fetchData} className="mt-6">
-                        Coba Lagi
-                    </Button>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="flex h-screen bg-slate-100">
-            <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-
-            {/* Mobile Sidebar */}
-            <div className={`fixed inset-0 z-40 transform transition-transform md:hidden ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                 <div className="absolute inset-0 bg-black opacity-50" onClick={() => setSidebarOpen(false)}></div>
-                 <aside className="relative w-64 bg-sekolah-800 text-white flex-col p-4 h-full flex">
-                    <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 text-sekolah-200 hover:text-white">
-                        <CloseIcon />
+            {/* Sidebar */}
+             <aside className={`absolute md:relative z-20 md:z-auto bg-sekolah-900 text-white w-64 min-h-screen p-4 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+                <div className="flex justify-between items-center mb-10">
+                    <h1 className="text-2xl font-bold">Absensi</h1>
+                    <button onClick={() => setSidebarOpen(false)} className="md:hidden text-white hover:text-sekolah-200">
+                       <CloseIcon />
                     </button>
-                    <SidebarContent />
-                    <nav className="flex flex-col gap-2 flex-grow">
-                       <NavLink targetView="dashboard" icon={<DashboardIcon />} label="Dashboard" />
-                       <NavLink targetView="students" icon={<StudentsIcon />} label="Manajemen Siswa" />
-                       <NavLink targetView="attendance" icon={<AttendanceIcon />} label="Absensi Kelas" />
-                       <NavLink targetView="recap" icon={<RecapIcon />} label="Rekap Kehadiran" />
-                    </nav>
-                     <Button onClick={handleLogout} variant="danger" className="w-full mt-4">
-                        <LogoutIcon /> Keluar
-                    </Button>
-                </aside>
-            </div>
-            
-            {/* Desktop Sidebar */}
-            <aside className="w-64 bg-sekolah-800 text-white flex-col p-4 hidden md:flex">
-                <SidebarContent />
-                <nav className="flex flex-col gap-2 flex-grow">
-                   <NavLink targetView="dashboard" icon={<DashboardIcon />} label="Dashboard" />
-                   <NavLink targetView="students" icon={<StudentsIcon />} label="Manajemen Siswa" />
-                   <NavLink targetView="attendance" icon={<AttendanceIcon />} label="Absensi Kelas" />
-                   <NavLink targetView="recap" icon={<RecapIcon />} label="Rekap Kehadiran" />
+                </div>
+                <nav className="flex-grow">
+                    <ul>
+                         {menuItems.map(item => (
+                            <li key={item.name} className="mb-2">
+                                <a 
+                                    href="#" 
+                                    onClick={(e) => { e.preventDefault(); setView(item.name); setSidebarOpen(false); }}
+                                    className={`flex items-center gap-3 p-3 rounded-md transition-colors ${view === item.name ? 'bg-sekolah-700' : 'hover:bg-sekolah-800'}`}
+                                >
+                                    {item.icon}
+                                    <span className="font-semibold">{item.label}</span>
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
                 </nav>
-                 <Button onClick={handleLogout} variant="danger" className="w-full mt-4">
-                    <LogoutIcon /> Keluar
-                 </Button>
+                <div className="mt-auto">
+                   <div className="border-t border-sekolah-700 pt-4">
+                        <p className="text-sm text-sekolah-300 truncate" title={session.user.email}>{session.user.email}</p>
+                        <Button onClick={handleLogout} variant="secondary" className="w-full mt-4 bg-sekolah-800 hover:bg-sekolah-700 text-white">
+                           <LogoutIcon /> Keluar
+                        </Button>
+                   </div>
+                </div>
             </aside>
             
-            <div className="flex flex-col flex-1">
+            <div className="flex-1 flex flex-col overflow-hidden">
                 <Header onMenuClick={() => setSidebarOpen(true)} />
-                <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
+                <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100 p-4 md:p-6 lg:p-8">
                     {renderView()}
                 </main>
             </div>
+            
+            <ToastContainer toasts={toasts} onDismiss={dismissToast} />
         </div>
     );
-}
+};
 
-export default function App() {
+
+const App = () => {
     const [session, setSession] = useState<Session | null>(null);
-    const [authLoading, setAuthLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
     useEffect(() => {
-        const fetchSession = async () => {
+        const getSession = async () => {
             const { data: { session } } = await supabase.auth.getSession();
             setSession(session);
-            setAuthLoading(false);
+            setLoading(false);
         };
-        
-        fetchSession();
+        getSession();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             setSession(session);
@@ -1419,33 +1426,30 @@ export default function App() {
         return () => subscription.unsubscribe();
     }, []);
     
-    const showToast = (type: 'success' | 'error', message: string) => {
+     const showToast = (type: 'success' | 'error', message: string) => {
         const id = Date.now();
         setToasts(prev => [...prev, { id, type, message }]);
         setTimeout(() => {
             setToasts(prev => prev.filter(t => t.id !== id));
         }, 5000);
     };
-
+    
     const dismissToast = (id: number) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     };
 
-    if (authLoading) {
-         return (
-            <div className="flex h-screen w-full items-center justify-center bg-slate-100">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-sekolah-600"></div>
-                    <p className="text-xl font-semibold text-slate-600">Memeriksa sesi...</p>
-                </div>
-            </div>
-        );
-    }
 
+    if (loading) {
+        return <div className="flex items-center justify-center min-h-screen bg-slate-100"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-sekolah-600"></div></div>;
+    }
+    
     return (
         <>
+            {!session ? <AuthView showToast={showToast} /> : <MainApp session={session} />}
             <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-            {!session ? <AuthView showToast={showToast} /> : <MainApp key={session.user.id} session={session} />}
         </>
-    )
-}
+    );
+};
+
+
+export default App;

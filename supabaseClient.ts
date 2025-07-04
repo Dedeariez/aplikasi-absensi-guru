@@ -22,7 +22,7 @@ export interface Database {
           name: string
           class: string
           nis: string
-          email: string
+          email: string | null
           user_id: string
         }
         Insert: {
@@ -31,7 +31,7 @@ export interface Database {
           name: string
           class: string
           nis?: string
-          email?: string
+          email?: string | null
           user_id?: string
         }
         Update: {
@@ -40,7 +40,7 @@ export interface Database {
           name?: string
           class?: string
           nis?: string
-          email?: string
+          email?: string | null
           user_id?: string
         }
         Relationships: []
@@ -73,7 +73,15 @@ export interface Database {
           status?: AttendanceStatusEnum
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "attendance_records_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          }
+        ]
       }
     }
     Views: { [key: string]: never }

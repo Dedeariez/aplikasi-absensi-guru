@@ -4,7 +4,7 @@ export interface Student {
   name: string;
   class: string;
   nis: string;
-  email: string;
+  email: string | null;
 }
 
 export enum AttendanceStatus {

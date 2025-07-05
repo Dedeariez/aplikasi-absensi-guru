@@ -96,12 +96,48 @@ export interface Database {
 // --- END OF TYPE DEFINITIONS ---
 
 
-// WARNING: In a real-world application, DO NOT hardcode your credentials like this.
-// These values should be stored securely in environment variables and accessed
-// via `process.env.SUPABASE_URL` and `process.env.SUPABASE_KEY`.
-// This is done here only for demonstration purposes in this specific sandboxed environment.
-const supabaseUrl = 'https://qurvymoragyykcneuhxg.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1cnZ5bW9yYWd5eWtjbmV1aHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE1OTUzNDMsImV4cCI6MjA2NzE3MTM0M30.RP-fTDIX-vMYevElUEjILaC5N_zFmV1vlfGp_UHFQYs';
+// --- Supabase Client Initialization ---
+
+// This setup is designed to work in two environments:
+// 1. Vercel (Production): It uses VITE_... environment variables set in the Vercel dashboard.
+// 2. Local Development: It uses the fallback placeholder values below.
+//
+// !! KREDENSIAL SUDAH DIMASUKKAN !!
+// Nilai di bawah ini telah diisi dengan kredensial yang Anda berikan.
+const LOCAL_DEV_SUPABASE_URL = "https://qurvymoragyykcneuhxg.supabase.co";
+const LOCAL_DEV_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1cnZ5bW9yYWd5eWtjbmV1aHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE1OTUzNDMsImV4cCI6MjA2NzE3MTM0M30.RP-fTDIX-vMYevElUEjILaC5N_zFmV1vlfGp_UHFQYs";
+
+
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || LOCAL_DEV_SUPABASE_URL;
+const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_KEY || LOCAL_DEV_SUPABASE_KEY;
+
+if (!supabaseUrl || !supabaseKey || supabaseUrl.startsWith('GANTI_DENGAN')) {
+    const rootEl = document.getElementById('root');
+    if (rootEl) {
+        rootEl.innerHTML = `
+            <div class="fixed inset-0 bg-red-50 text-red-700 p-4 flex justify-center items-center">
+                <div class="bg-white p-8 rounded-lg shadow-2xl border-2 border-red-200 max-w-2xl text-center">
+                    <h1 class="text-2xl font-bold mb-4">Error: Konfigurasi Supabase Diperlukan</h1>
+                    <p class="text-slate-700 mb-4">
+                        Aplikasi tidak dapat terhubung ke database. Silakan periksa konfigurasi Anda.
+                    </p>
+                    <div class="text-left bg-slate-50 p-4 rounded-md text-slate-600">
+                        <p class="font-semibold mb-2">Petunjuk:</p>
+                        <ul class="list-disc list-inside space-y-2">
+                            <li>
+                                <strong>Jika menjalankan secara lokal:</strong> Buka file <code>supabaseClient.ts</code>, cari konstanta <code>LOCAL_DEV_SUPABASE_URL</code> dan <code>LOCAL_DEV_SUPABASE_KEY</code>, lalu ganti nilainya dengan kredensial dari proyek Supabase Anda.
+                            </li>
+                            <li>
+                                <strong>Jika mendeploy ke Vercel:</strong> Pastikan Anda telah mengatur Environment Variables <code>VITE_SUPABASE_URL</code> dan <code>VITE_SUPABASE_KEY</code> di pengaturan proyek Vercel Anda.
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    throw new Error("Supabase URL and Key must be configured. Check supabaseClient.ts for local development or Vercel environment variables for production.");
+}
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseKey);
 

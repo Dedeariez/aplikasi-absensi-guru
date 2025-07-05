@@ -1039,21 +1039,105 @@ const StudentDetailView = ({
     );
 };
 
-const AuthView = ({
+const ResetPasswordView = ({
   showToast,
-  onLoginSuccess
+  onResetSuccess
 }: {
   showToast: (type: 'success' | 'error', message: string) => void;
-  onLoginSuccess: () => void;
+  onResetSuccess: () => void;
 }) => {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 6) {
+      showToast('error', 'Password baru minimal harus 6 karakter.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      showToast('error', 'Konfirmasi password tidak cocok.');
+      return;
+    }
+    setIsLoading(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setIsLoading(false);
+    if (error) {
+      showToast('error', `Gagal memperbarui password: ${error.message}`);
+    } else {
+      onResetSuccess();
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
+      <div className="max-w-md w-full space-y-8 p-8 bg-white shadow-xl rounded-lg">
+        <div className="text-center">
+          <h2 className="text-3xl font-bold text-slate-900">
+            Reset Password Anda
+          </h2>
+          <p className="mt-4 text-slate-600">
+            Masukkan password baru Anda di bawah ini.
+          </p>
+        </div>
+        <form className="mt-8 space-y-6" onSubmit={handleReset}>
+          <div className="rounded-md shadow-sm -space-y-px">
+            <div>
+              <label htmlFor="new-password" className="sr-only">Password Baru</label>
+              <input
+                id="new-password"
+                name="password"
+                type="password"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 rounded-t-md focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 focus:z-10 sm:text-sm"
+                placeholder="Password Baru"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="confirm-password" className="sr-only">Konfirmasi Password Baru</label>
+              <input
+                id="confirm-password"
+                name="confirmPassword"
+                type="password"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 rounded-b-md focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 focus:z-10 sm:text-sm"
+                placeholder="Konfirmasi Password Baru"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <Button
+              type="submit"
+              variant="primary"
+              className="w-full"
+              isLoading={isLoading}
+            >
+              Simpan Password Baru
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const AuthView = ({
+  showToast,
+}: {
+  showToast: (type: 'success' | 'error', message: string) => void;
+}) => {
+  const [authFlow, setAuthFlow] = useState<'signin' | 'signup' | 'forgot_password' | 'check_email_signup' | 'check_email_reset'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [authView, setAuthView] = useState<'form' | 'check_email'>('form');
 
   useEffect(() => {
     let interval: number | undefined;
@@ -1090,15 +1174,29 @@ const AuthView = ({
     setIsResending(false);
   };
 
+  const handlePasswordResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+    });
+    setIsLoading(false);
+    if (error) {
+        showToast('error', `Gagal mengirim tautan reset: ${error.message}`);
+    } else {
+        setAuthFlow('check_email_reset');
+    }
+  };
+
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === 'signup' && !fullName.trim()) {
+    if (authFlow === 'signup' && !fullName.trim()) {
         showToast('error', 'Nama Lengkap Guru wajib diisi.');
         return;
     }
     setIsLoading(true);
 
-    const authMethod = mode === 'signup'
+    const authMethod = authFlow === 'signup'
       ? supabase.auth.signUp({ 
           email, 
           password,
@@ -1113,55 +1211,101 @@ const AuthView = ({
     const { data, error } = await authMethod;
 
     if (error) {
-      showToast('error', error.message);
-    } else if (mode === 'signup' && data.user) {
+      if (error.message === 'Invalid login credentials') {
+        showToast('error', 'Email atau password salah. Silakan coba lagi.');
+      } else {
+        showToast('error', error.message);
+      }
+    } else if (authFlow === 'signup' && data.user) {
         if(data.user.identities?.length === 0) {
             // User already exists but is not confirmed. Resend email.
             await supabase.auth.resend({ type: 'signup', email: email });
-            setAuthView('check_email');
+            setAuthFlow('check_email_signup');
         } else {
-            setAuthView('check_email');
+            setAuthFlow('check_email_signup');
             showToast('success', 'Pendaftaran berhasil! Silakan cek email Anda untuk verifikasi.');
         }
-    } else if (mode === 'signin' && data.user) {
-      // onLoginSuccess will be called by onAuthStateChange listener
     }
     setIsLoading(false);
   };
 
-  if (authView === 'check_email') {
+  if (authFlow === 'check_email_signup' || authFlow === 'check_email_reset') {
+    const isReset = authFlow === 'check_email_reset';
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
         <div className="max-w-md w-full text-center p-8 space-y-6 bg-white shadow-lg rounded-lg">
             <MailIcon className="mx-auto text-sekolah-500 w-24 h-24"/>
-            <h1 className="text-3xl font-bold text-slate-800">Verifikasi Email Anda</h1>
+            <h1 className="text-3xl font-bold text-slate-800">{isReset ? 'Cek Email Anda' : 'Verifikasi Email Anda'}</h1>
             <p className="text-slate-600">
-                Kami telah mengirimkan tautan verifikasi ke <span className="font-bold text-slate-800">{email}</span>. Silakan klik tautan tersebut untuk menyelesaikan pendaftaran.
+                {isReset 
+                    ? <>Kami telah mengirimkan tautan untuk mereset password ke <span className="font-bold text-slate-800">{email}</span>. Silakan klik tautan tersebut untuk melanjutkan.</>
+                    : <>Kami telah mengirimkan tautan verifikasi ke <span className="font-bold text-slate-800">{email}</span>. Silakan klik tautan tersebut untuk menyelesaikan pendaftaran.</>
+                }
             </p>
             <div className="pt-4 space-y-3">
+              {!isReset && (
+                <Button
+                    onClick={handleResendEmail}
+                    isLoading={isResending}
+                    disabled={isResending || resendCooldown > 0}
+                    className="w-full"
+                >
+                    {resendCooldown > 0 ? `Kirim Ulang dalam ${resendCooldown}s` : 'Kirim Ulang Email Verifikasi'}
+                </Button>
+              )}
               <Button
-                onClick={handleResendEmail}
-                isLoading={isResending}
-                disabled={isResending || resendCooldown > 0}
-                className="w-full"
-              >
-                {resendCooldown > 0 ? `Kirim Ulang dalam ${resendCooldown}s` : 'Kirim Ulang Email Verifikasi'}
-              </Button>
-              <Button
-                onClick={() => setAuthView('form')}
+                onClick={() => setAuthFlow(isReset ? 'forgot_password' : 'signup')}
                 variant="secondary"
                 className="w-full"
                 disabled={isResending}
               >
-                Salah Email? Kembali
+                Kembali
               </Button>
             </div>
-            <p className="text-sm text-slate-500 !mt-6">
-              Tidak menerima email? Cek folder spam Anda atau coba kirim ulang.
+             <p className="text-sm text-slate-500 !mt-6">
+              Tidak menerima email? Cek folder spam Anda. Halaman ini akan diperbarui secara otomatis setelah proses selesai.
             </p>
-            <p className="text-sm text-slate-500">
-              Halaman ini akan diperbarui secara otomatis setelah verifikasi selesai.
-            </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authFlow === 'forgot_password') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
+        <div className="max-w-md w-full space-y-8 p-8 bg-white shadow-xl rounded-lg">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold text-slate-900">Lupa Password?</h2>
+              <p className="mt-4 text-slate-600">
+                Jangan khawatir. Masukkan email Anda dan kami akan mengirimkan tautan untuk mereset password Anda.
+              </p>
+            </div>
+            <form className="mt-8 space-y-6" onSubmit={handlePasswordResetRequest}>
+              <div>
+                  <label htmlFor="email-address" className="sr-only">Alamat email</label>
+                  <input
+                    id="email-address"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    className="appearance-none rounded-md relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 sm:text-sm"
+                    placeholder="Alamat email Anda"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+              </div>
+               <div>
+                <Button type="submit" variant="primary" className="w-full" isLoading={isLoading}>
+                  Kirim Tautan Reset
+                </Button>
+              </div>
+            </form>
+             <div className="text-sm text-center">
+              <button onClick={() => setAuthFlow('signin')} className="font-medium text-sekolah-600 hover:text-sekolah-500">
+                Kembali ke halaman Masuk
+              </button>
+            </div>
         </div>
       </div>
     );
@@ -1178,19 +1322,19 @@ const AuthView = ({
             Madrasah Aliyah Darul Inayah
           </p>
           <p className="mt-8 text-sm text-slate-600">
-            {mode === 'signin' ? 'Silakan masuk, atau ' : 'Silakan daftar, atau '}
+            {authFlow === 'signin' ? 'Silakan masuk, atau ' : 'Silakan daftar, atau '}
             <button
-              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+              onClick={() => setAuthFlow(authFlow === 'signin' ? 'signup' : 'signin')}
               className="font-medium text-sekolah-600 hover:text-sekolah-500"
             >
-              {mode === 'signin' ? 'buat akun baru' : 'masuk di sini'}
+              {authFlow === 'signin' ? 'buat akun baru' : 'masuk di sini'}
             </button>
           </p>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleEmailAuth}>
           <div className="rounded-md shadow-sm -space-y-px">
-            {mode === 'signup' && (
+            {authFlow === 'signup' && (
               <div>
                 <label htmlFor="full-name" className="sr-only">Nama Lengkap Guru</label>
                 <input
@@ -1213,7 +1357,7 @@ const AuthView = ({
                 type="email"
                 autoComplete="email"
                 required
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 ${mode === 'signin' ? 'rounded-t-md' : ''} focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 focus:z-10 sm:text-sm`}
+                className={`appearance-none rounded-none relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 ${authFlow === 'signin' ? 'rounded-t-md' : ''} focus:outline-none focus:ring-sekolah-500 focus:border-sekolah-500 focus:z-10 sm:text-sm`}
                 placeholder="Alamat email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -1234,6 +1378,15 @@ const AuthView = ({
               />
             </div>
           </div>
+            {authFlow === 'signin' && (
+                <div className="flex items-center justify-end">
+                    <div className="text-sm">
+                        <button onClick={() => setAuthFlow('forgot_password')} className="font-medium text-sekolah-600 hover:text-sekolah-500">
+                        Lupa password?
+                        </button>
+                    </div>
+                </div>
+            )}
           <div>
             <Button
               type="submit"
@@ -1241,7 +1394,7 @@ const AuthView = ({
               className="w-full"
               isLoading={isLoading}
             >
-              {mode === 'signin' ? 'Masuk' : 'Daftar'}
+              {authFlow === 'signin' ? 'Masuk' : 'Daftar'}
             </Button>
           </div>
         </form>
@@ -1258,6 +1411,7 @@ const AuthView = ({
 const App = () => {
     const [session, setSession] = useState<Session | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [authAction, setAuthAction] = useState<'auth' | 'reset_password'>('auth');
     const [currentView, setCurrentView] = useState<View>('dashboard');
     const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
     const [students, setStudents] = useState<Student[]>([]);
@@ -1274,11 +1428,12 @@ const App = () => {
     }, []);
     
     const fetchData = useCallback(async () => {
-        setIsLoading(true);
+        // Don't set loading to true here, to avoid flashing on refetches.
+        // It's mainly for the initial load.
         try {
             const { data: studentsData, error: studentsError } = await supabase
                 .from('students')
-                .select('*')
+                .select('id, name, class, nis, email')
                 .order('name', { ascending: true });
             
             if (studentsError) throw studentsError;
@@ -1305,19 +1460,28 @@ const App = () => {
     }, [showToast]);
 
     useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            if (session) {
-                fetchData();
-            } else {
-                setIsLoading(false);
-            }
-        });
-
+        setIsLoading(true);
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (_event === 'PASSWORD_RECOVERY') {
+                setAuthAction('reset_password');
+            } else if (_event !== 'TOKEN_REFRESHED') {
+                 setAuthAction('auth');
+            }
+            
             setSession(session);
-             if (_event === 'SIGNED_IN') {
+            
+            if (_event === 'SIGNED_IN') {
                 fetchData();
+            }
+            
+            if (_event === 'INITIAL_SESSION') {
+               if(session) {
+                   fetchData();
+               } else {
+                   setIsLoading(false);
+               }
+            } else if (_event !== 'SIGNED_IN') {
+               setIsLoading(false);
             }
         });
 
@@ -1332,175 +1496,213 @@ const App = () => {
     };
 
     const handleAddStudent = async (student: Omit<Student, 'id'>) => {
-        const { data, error } = await supabase.from('students').insert({ 
-            name: student.name,
-            class: student.class,
-            nis: student.nis,
-            email: student.email || null,
-        }).select().single();
-        if (error) throw error;
-        if(data) await fetchData();
-    };
+        const { data, error } = await supabase
+            .from('students')
+            .insert([student])
+            .select('id, name, class, nis, email')
+            .single();
 
-    const handleUpdateStudent = async (student: Student) => {
-        const { error } = await supabase.from('students').update({
-            name: student.name,
-            class: student.class,
-            nis: student.nis,
-            email: student.email || null,
-        }).eq('id', student.id);
-        if (error) throw error;
-        await fetchData();
-    };
-    
-    const handleDeleteStudent = async (id: number) => {
-        const { error } = await supabase.from('students').delete().eq('id', id);
-        if (error) throw error;
-        await fetchData();
-    };
-    
-    const handleImportStudents = async (newStudents: Omit<Student, 'id'>[]) => {
-        const payload = newStudents.map(s => ({
-            name: s.name,
-            class: s.class,
-            nis: s.nis,
-            email: s.email || null,
-        }));
-        const { error } = await supabase.from('students').insert(payload);
-        if (error) throw error;
-        await fetchData();
-    };
-
-    const handleSaveClassAttendance = async (records: Pick<AttendanceRecord, 'studentId' | 'date' | 'lessonHour' | 'status'>[]) => {
-       // Defensive check on the client-side, though the main logic is in the DB function.
-       for (const record of records) {
-           if (!record.date || !record.studentId || !record.lessonHour || !record.status) {
-               const errorMessage = `Data absensi tidak lengkap. Data: ${JSON.stringify(record)}`;
-               showToast('error', errorMessage);
-               throw new Error(errorMessage);
-           }
-       }
-       
-       try {
-            const { error } = await supabase.rpc('save_class_attendance', { records_json: records });
-            if (error) {
-                // Throw the error so the component can catch it and show the toast
-                throw error;
-            }
-            await fetchData();
-        } catch (err: any) {
-            console.error('Gagal menyimpan absensi (full error object):', err);
-            
-            // Extract the most helpful error message
-            const errorMessage = err?.details || err?.message || "Terjadi kesalahan yang tidak diketahui saat menyimpan.";
-            
-            showToast('error', `Gagal menyimpan absensi: ${errorMessage}`);
-            // Re-throw to signal failure to the caller if needed
-            throw new Error(errorMessage);
+        if (error) {
+            console.error('Error adding student:', error);
+            throw error;
+        }
+        if (data) {
+            setStudents(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
         }
     };
 
-    const handleViewChange = (view: View) => {
-        setCurrentView(view);
-        setIsSidebarOpen(false);
+    const handleUpdateStudent = async (student: Student) => {
+        const { data, error } = await supabase
+            .from('students')
+            .update({ name: student.name, class: student.class, nis: student.nis, email: student.email })
+            .eq('id', student.id)
+            .select('id, name, class, nis, email')
+            .single();
+
+        if (error) {
+            console.error('Error updating student:', error);
+            throw error;
+        }
+        if (data) {
+            setStudents(prev => prev.map(s => (s.id === data.id ? data : s)).sort((a, b) => a.name.localeCompare(b.name)));
+        }
     };
-    
-    const handleViewDetail = (id: number) => {
+
+    const handleDeleteStudent = async (id: number) => {
+        const { error } = await supabase
+            .from('students')
+            .delete()
+            .eq('id', id);
+        
+        if (error) {
+            console.error('Error deleting student:', error);
+            throw error;
+        }
+        setStudents(prev => prev.filter(s => s.id !== id));
+    };
+
+    const handleImportStudents = async (newStudents: Omit<Student, 'id'>[]) => {
+        const { data, error } = await supabase
+            .from('students')
+            .insert(newStudents)
+            .select();
+        
+        if (error) {
+            console.error('Error importing students:', error);
+            throw error;
+        }
+        if (data) {
+            await fetchData(); // Refetch all data to ensure consistency
+        }
+    };
+
+    const handleSaveClassAttendance = async (records: Pick<AttendanceRecord, 'studentId' | 'date' | 'lessonHour' | 'status'>[]) => {
+        const { error } = await supabase.rpc('save_class_attendance', {
+            records_json: records
+        });
+        
+        if (error) {
+            console.error('Error saving attendance:', error);
+            showToast('error', `Gagal menyimpan absensi: ${error.message}`);
+            throw error;
+        }
+        
+        await fetchData();
+    };
+
+    const handleViewStudentDetail = (id: number) => {
         setSelectedStudentId(id);
         setCurrentView('studentDetail');
     };
-
-    const NavLink = ({ view, icon, label }: { view: View; icon: React.ReactElement<{ className?: string }>; label: string; }) => (
-        <button
-            onClick={() => handleViewChange(view)}
-            className={`flex items-center w-full p-3 rounded-lg transition-colors text-left ${currentView === view ? 'bg-sekolah-800 text-white' : 'text-slate-300 hover:bg-sekolah-600 hover:text-white'}`}
-        >
-            {React.cloneElement(icon, { className: 'w-5 h-5 mr-3' })}
-            <span className="font-medium">{label}</span>
-        </button>
-    );
-
-    if (isLoading && !session) {
-        return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-16 w-16 border-t-4 border-sekolah-600"></div></div>;
-    }
-
-    if (!session) {
-        return <AuthView showToast={showToast} onLoginSuccess={fetchData} />;
-    }
     
-    const userFullName = session.user.user_metadata?.full_name || session.user.email?.split('@')[0];
+    const handleBackFromDetail = () => {
+        setCurrentView('students');
+        setSelectedStudentId(null);
+    };
 
     const renderView = () => {
-        const selectedStudent = students.find(s => s.id === selectedStudentId);
-
         switch (currentView) {
             case 'dashboard':
                 return <DashboardView students={students} attendanceRecords={attendanceRecords} onImport={handleImportStudents} showToast={showToast} />;
             case 'students':
-                return <StudentManagementView students={students} onAdd={handleAddStudent} onUpdate={handleUpdateStudent} onDelete={handleDeleteStudent} onImport={handleImportStudents} onViewDetail={handleViewDetail} showToast={showToast} />;
+                return <StudentManagementView students={students} onAdd={handleAddStudent} onUpdate={handleUpdateStudent} onDelete={handleDeleteStudent} onImport={handleImportStudents} onViewDetail={handleViewStudentDetail} showToast={showToast} />;
             case 'attendance':
                 return <AttendanceView students={students} attendanceRecords={attendanceRecords} onSave={handleSaveClassAttendance} showToast={showToast} />;
             case 'recap':
                 return <RecapView students={students} attendanceRecords={attendanceRecords} />;
             case 'studentDetail':
-                return <StudentDetailView student={selectedStudent} attendanceRecords={attendanceRecords} onBack={() => handleViewChange('students')} />;
+                return <StudentDetailView student={students.find(s => s.id === selectedStudentId)} attendanceRecords={attendanceRecords} onBack={handleBackFromDetail} />;
             default:
                 return <DashboardView students={students} attendanceRecords={attendanceRecords} onImport={handleImportStudents} showToast={showToast} />;
         }
     };
 
+    const ToastContainer = () => (
+        <div className="fixed top-5 right-5 z-[100] space-y-2">
+            {toasts.map(toast => (
+                <div key={toast.id} className={`max-w-sm rounded-md shadow-lg p-4 text-white ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                    {toast.message}
+                </div>
+            ))}
+        </div>
+    );
+    
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-slate-50">
+                <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-sekolah-600"></div>
+            </div>
+        );
+    }
+
+    if (!session) {
+        if (authAction === 'reset_password') {
+            return (
+                <>
+                    <ToastContainer />
+                    <ResetPasswordView
+                        showToast={showToast}
+                        onResetSuccess={() => {
+                            showToast('success', 'Password berhasil diperbarui! Silakan masuk dengan password baru Anda.');
+                            setAuthAction('auth');
+                        }}
+                    />
+                </>
+            );
+        }
+        return (
+            <>
+                <ToastContainer />
+                <AuthView showToast={showToast} />
+            </>
+        );
+    }
+    
+    const navItems = [
+        { view: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
+        { view: 'students', label: 'Manajemen Siswa', icon: StudentsIcon },
+        { view: 'attendance', label: 'Input Absensi', icon: AttendanceIcon },
+        { view: 'recap', label: 'Rekapitulasi', icon: RecapIcon },
+    ];
+
     return (
         <div className="flex h-screen bg-slate-100">
+            <ToastContainer />
+            
             {/* Sidebar */}
-            <aside className={`absolute md:relative z-20 md:z-auto bg-sekolah-900 text-white w-64 p-4 flex flex-col space-y-4 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out`}>
-                <div className="flex items-center justify-between">
-                     <h1 className="text-2xl font-bold text-white">MA Darul Inayah</h1>
-                     <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-white p-1">
-                        <CloseIcon />
-                    </button>
+            <aside className={`absolute md:relative z-20 md:z-auto bg-sekolah-900 text-white w-64 min-h-screen p-4 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+                <div className="text-center mb-10">
+                    <h1 className="text-2xl font-bold">Absensi Guru</h1>
+                    <p className="text-sm text-sekolah-300">MA Darul Inayah</p>
                 </div>
-                <nav className="flex-grow space-y-2">
-                    <NavLink view="dashboard" icon={<DashboardIcon />} label="Dashboard" />
-                    <NavLink view="students" icon={<StudentsIcon />} label="Manajemen Siswa" />
-                    <NavLink view="attendance" icon={<AttendanceIcon />} label="Input Absensi" />
-                    <NavLink view="recap" icon={<RecapIcon />} label="Rekapitulasi" />
+                <nav className="flex-grow">
+                    <ul>
+                        {navItems.map(item => (
+                            <li key={item.view}>
+                                <a
+                                    href="#"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        setCurrentView(item.view as View);
+                                        setIsSidebarOpen(false);
+                                    }}
+                                    className={`flex items-center gap-3 px-3 py-3 my-1 rounded-md text-lg font-medium transition-colors ${currentView === item.view ? 'bg-sekolah-700 text-white' : 'text-sekolah-200 hover:bg-sekolah-800 hover:text-white'}`}
+                                >
+                                    <item.icon className="w-6 h-6" />
+                                    {item.label}
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
                 </nav>
-                <div className="pt-4 border-t border-sekolah-700">
-                    <div className="mb-2">
-                      <div className="font-semibold text-white truncate" title={userFullName || ''}>{userFullName}</div>
-                      <div className="text-sm text-slate-400 truncate" title={session.user.email || ''}>{session.user.email}</div>
+                <div className="border-t border-sekolah-700 pt-4">
+                     <div className="px-3 py-2">
+                        <p className="text-sm font-medium text-white truncate">{session.user.email}</p>
                     </div>
-                    <Button onClick={handleLogout} variant="secondary" className="w-full text-sekolah-800"><LogoutIcon/> Logout</Button>
+                    <Button
+                        onClick={handleLogout}
+                        variant="secondary"
+                        className="w-full bg-sekolah-800 text-sekolah-200 hover:bg-red-600 hover:text-white"
+                    >
+                       <LogoutIcon />
+                       Keluar
+                    </Button>
                 </div>
             </aside>
             
+            {/* Main Content */}
             <div className="flex-1 flex flex-col overflow-hidden">
-                 {/* Top bar for mobile */}
-                <header className="md:hidden bg-white shadow-md p-4 flex justify-between items-center">
-                    <button onClick={() => setIsSidebarOpen(true)} className="text-slate-600">
-                        <MenuIcon />
+                <header className="bg-white shadow-sm p-4 md:hidden flex justify-between items-center">
+                    <h1 className="text-xl font-bold text-sekolah-800">
+                        {navItems.find(i => i.view === currentView)?.label || 'Absensi Guru'}
+                    </h1>
+                    <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-600">
+                        {isSidebarOpen ? <CloseIcon /> : <MenuIcon />}
                     </button>
-                    <h2 className="text-lg font-bold text-slate-800 capitalize">{currentView.replace('studentDetail', 'Detail Siswa')}</h2>
-                    <div></div>
                 </header>
-
-                {/* Main Content */}
-                <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 lg:p-8">
-                    {isLoading ? (
-                        <div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-4 border-sekolah-600"></div></div>
-                    ) : (
-                        renderView()
-                    )}
+                <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100 p-6">
+                    {renderView()}
                 </main>
-            </div>
-            
-             {/* Toast Container */}
-            <div className="fixed bottom-4 right-4 z-50 w-full max-w-xs space-y-2">
-                {toasts.map(toast => (
-                    <div key={toast.id} className={`p-4 rounded-md shadow-lg text-white ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
-                        {toast.message}
-                    </div>
-                ))}
             </div>
         </div>
     );

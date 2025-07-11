@@ -7,46 +7,94 @@ import { Profile, UserRole, Student, AuditLogEntry, AttendanceRecord, Attendance
 const supabaseUrl = 'https://yruzgaflsealftckcuwc.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlydXpnYWZsc2VhbGZ0Y2tjdXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMTQ3MjEsImV4cCI6MjA2Nzc5MDcyMX0.cgXUvH9sqC9kDb0fDNMZp-8ySrfWL3cSJyolqr9k0Pc';
 
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
-
-// This is a strict representation of the attendance table in the database.
-interface AttendanceTableRow {
-    id: number;
-    student_id: string;
-    date: string;
-    lesson_hour: number;
-    status: AttendanceStatus;
-    taken_by_teacher_id: string;
-}
-
 export interface Database {
   public: {
     Tables: {
       profiles: {
-        Row: Profile;
-        Insert: Profile;
-        Update: Partial<Omit<Profile, 'id'>>;
+        Row: {
+          id: string;
+          full_name: string;
+          email: string;
+          role: 'teacher' | 'parent';
+        };
+        Insert: {
+          id: string;
+          full_name?: string;
+          email?: string;
+          role?: 'teacher' | 'parent';
+        };
+        Update: {
+          full_name?: string;
+          email?: string;
+          role?: 'teacher' | 'parent';
+        };
       };
       students: {
-        Row: Student;
-        Insert: Omit<Student, 'id'>;
-        Update: Partial<Omit<Student, 'id'>>;
+        Row: {
+          id: string;
+          full_name: string;
+          grade: number;
+          class_letter: 'A' | 'B';
+          gender: 'L' | 'P';
+          nisn: string | null;
+          parent_id: string | null;
+        };
+        Insert: {
+          full_name: string;
+          grade: number;
+          class_letter: 'A' | 'B';
+          gender: 'L' | 'P';
+          nisn?: string | null;
+          parent_id?: string | null;
+        };
+        Update: {
+          full_name?: string;
+          grade?: number;
+          class_letter?: 'A' | 'B';
+          gender?: 'L' | 'P';
+          nisn?: string | null;
+          parent_id?: string | null;
+        };
       };
       attendance: {
-        Row: AttendanceTableRow;
-        Insert: Omit<AttendanceTableRow, 'id'>;
-        Update: Partial<Omit<AttendanceTableRow, 'id'>>;
+        Row: {
+          id: number;
+          student_id: string;
+          date: string;
+          lesson_hour: number;
+          status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Tidur';
+          taken_by_teacher_id: string;
+        };
+        Insert: {
+          student_id: string;
+          date: string;
+          lesson_hour: number;
+          status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Tidur';
+          taken_by_teacher_id: string;
+        };
+        Update: {
+          student_id?: string;
+          date?: string;
+          lesson_hour?: number;
+          status?: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Tidur';
+          taken_by_teacher_id?: string;
+        };
       };
       audit_log: {
-        Row: AuditLogEntry;
-        Insert: Omit<AuditLogEntry, 'id' | 'created_at'>;
-        Update: never;
+        Row: {
+          id: number;
+          created_at: string;
+          user_email: string;
+          action: string;
+        };
+        Insert: {
+          action: string;
+          user_email: string;
+        };
+        Update: {
+          action?: string;
+          user_email?: string;
+        };
       };
     };
     Views: {
@@ -88,10 +136,11 @@ export const getProfile = async (user: User): Promise<Profile | null> => {
             id: user.id,
             email: user.email || '',
             full_name: user.user_metadata.full_name || 'Pengguna Baru',
-            role: user.user_metadata.role || UserRole.TEACHER,
+            role: user.user_metadata.role || UserRole.PARENT, // Default to parent on error
         };
     }
-    return data;
+    // The returned data is structurally compatible with Profile
+    return data as Profile | null;
 };
 
 export const getStudents = async (): Promise<Student[]> => {
@@ -100,7 +149,7 @@ export const getStudents = async (): Promise<Student[]> => {
         console.error("Error fetching students:", error);
         return [];
     }
-    return data || [];
+    return (data as Student[]) || [];
 };
 
 export const getStudentsByParent = async (parentId: string): Promise<Student[]> => {
@@ -109,7 +158,7 @@ export const getStudentsByParent = async (parentId: string): Promise<Student[]> 
         console.error("Error fetching students for parent:", error);
         return [];
     }
-    return data || [];
+    return (data as Student[]) || [];
 };
 
 export const getAttendanceByStudentIds = async (studentIds: string[]): Promise<AttendanceRecord[]> => {
@@ -124,9 +173,9 @@ export const getAttendanceByStudentIds = async (studentIds: string[]): Promise<A
         console.error("Error fetching attendance records:", error);
         return [];
     }
-    // The data is AttendanceTableRow[], which is compatible with AttendanceRecord[]
+    // The data from DB is compatible with AttendanceRecord[]
     // because the extra student_name field is optional.
-    return data || [];
+    return (data as AttendanceRecord[]) || [];
 };
 
 export const getAuditLogs = async (): Promise<AuditLogEntry[]> => {
@@ -135,7 +184,7 @@ export const getAuditLogs = async (): Promise<AuditLogEntry[]> => {
         console.error("Error fetching audit logs:", error);
         return [];
     }
-    return data || [];
+    return (data as AuditLogEntry[]) || [];
 };
 
 export const addAuditLog = async (action: string, userEmail: string) => {
@@ -186,11 +235,19 @@ export const getAttendanceForReport = async () => {
         if (!attendanceByStudentId.has(record.student_id)) {
             attendanceByStudentId.set(record.student_id, []);
         }
-        attendanceByStudentId.get(record.student_id)!.push(record);
+        attendanceByStudentId.get(record.student_id)!.push(record as AttendanceRecord);
     }
 
-    return students.map(student => ({
+    return (students as Student[]).map(student => ({
         ...student,
         records: attendanceByStudentId.get(student.id) || []
     }));
-}
+};
+
+export const updateProfileRole = async (userId: string, role: UserRole) => {
+    const { error } = await supabase.from('profiles').update({ role }).eq('id', userId);
+    if (error) {
+        console.error('Error updating user role:', error);
+        throw error;
+    }
+};

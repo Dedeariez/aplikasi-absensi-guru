@@ -1,6 +1,7 @@
+
+
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseService';
-import { UserRole } from '../types';
 import Button from './ui/Button';
 import Card from './ui/Card';
 import Spinner from './ui/Spinner';
@@ -12,7 +13,6 @@ const AuthPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [role, setRole] = useState<UserRole>(UserRole.TEACHER);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -37,7 +37,7 @@ const AuthPage: React.FC = () => {
           options: {
             data: {
               full_name: fullName,
-              role: role,
+              // Role is now set by a trigger in the backend by default
             },
           },
         });
@@ -94,7 +94,7 @@ const AuthPage: React.FC = () => {
             </div>
           )}
 
-          {view !== 'login' || <div className="mb-4">
+          <div className="mb-4">
             <label className="block text-gray-700 font-bold mb-2" htmlFor="email">Email</label>
             <input
               id="email"
@@ -104,37 +104,25 @@ const AuthPage: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               required
             />
-          </div>}
+          </div>
 
-          {view !== 'forgot_password' && <div className="mb-6">
-            <label className="block text-gray-700 font-bold mb-2" htmlFor="password">Password</label>
-            <input
-              id="password"
-              className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:ring-2 focus:ring-darul-green-500"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            {view === 'login' && (
-                <button type="button" onClick={() => {setView('forgot_password'); setError(null)}} className="inline-block align-baseline font-bold text-sm text-darul-green-600 hover:text-darul-green-800">Lupa Password?</button>
-            )}
-          </div>}
-          
-          {view === 'register' && (
-             <div className="mb-4">
-                <label className="block text-gray-700 font-bold mb-2">Peran Anda</label>
-                 <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as UserRole)}
-                    className="shadow border rounded-lg w-full py-2 px-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-darul-green-500"
-                >
-                    <option value={UserRole.TEACHER}>Guru</option>
-                    <option value={UserRole.PARENT}>Orang Tua</option>
-                </select>
+          {view !== 'forgot_password' && (
+            <div className="mb-6">
+              <label className="block text-gray-700 font-bold mb-2" htmlFor="password">Password</label>
+              <input
+                id="password"
+                className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:ring-2 focus:ring-darul-green-500"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              {view === 'login' && (
+                  <button type="button" onClick={() => {setView('forgot_password'); setError(null)}} className="inline-block align-baseline font-bold text-sm text-darul-green-600 hover:text-darul-green-800">Lupa Password?</button>
+              )}
             </div>
           )}
-
+          
           <div className="flex items-center justify-between">
             <Button type="submit" disabled={loading}>
               {loading ? <Spinner size="sm" color="border-white"/> : (view === 'login' ? 'Login' : view === 'register' ? 'Daftar' : 'Kirim Email Reset')}

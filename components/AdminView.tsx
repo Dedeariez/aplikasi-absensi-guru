@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
-import { Profile, Student } from '../types';
-import { supabase, addAuditLog } from '../services/supabaseService';
+import { Profile, Student, UserRole } from '../types';
+import { supabase, addAuditLog, updateProfileRole } from '../services/supabaseService';
 import Card from './ui/Card';
 import Button from './ui/Button';
 import Spinner from './ui/Spinner';
@@ -10,6 +11,7 @@ const AdminView: React.FC<{ profile: Profile }> = ({ profile: adminProfile }) =>
     const [students, setStudents] = useState<Student[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [updatingRoles, setUpdatingRoles] = useState<Record<string, boolean>>({});
 
     const fetchData = async () => {
         setLoading(true);
@@ -39,6 +41,19 @@ const AdminView: React.FC<{ profile: Profile }> = ({ profile: adminProfile }) =>
     useEffect(() => {
         fetchData();
     }, []);
+
+    const handleRoleChange = async (userId: string, userEmail: string, newRole: UserRole) => {
+        setUpdatingRoles(prev => ({ ...prev, [userId]: true }));
+        try {
+            await updateProfileRole(userId, newRole);
+            await addAuditLog(`Super admin mengubah peran ${userEmail} menjadi ${newRole}`, adminProfile.email);
+            setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { ...u, role: newRole } : u));
+        } catch(err: any) {
+            alert('Gagal mengubah peran pengguna: ' + err.message);
+        } finally {
+            setUpdatingRoles(prev => ({ ...prev, [userId]: false }));
+        }
+    }
 
     const handleDeleteUser = async (userId: string, userEmail: string) => {
         if (userEmail === 'ayahnieda@gmail.com') {
@@ -92,7 +107,20 @@ const AdminView: React.FC<{ profile: Profile }> = ({ profile: adminProfile }) =>
                                 <tr key={user.id}>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{user.full_name}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">{user.role}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
+                                        <div className="flex items-center space-x-2">
+                                            <select
+                                                value={user.role}
+                                                onChange={(e) => handleRoleChange(user.id, user.email, e.target.value as UserRole)}
+                                                disabled={user.email === 'ayahnieda@gmail.com' || updatingRoles[user.id]}
+                                                className="w-full rounded-md border-gray-300 shadow-sm disabled:bg-gray-100"
+                                            >
+                                                <option value={UserRole.PARENT}>Orang Tua</option>
+                                                <option value={UserRole.TEACHER}>Guru</option>
+                                            </select>
+                                            {updatingRoles[user.id] && <Spinner size="sm"/>}
+                                        </div>
+                                    </td>
                                     <td className="px-4 py-4 whitespace-nowrap">
                                         <Button 
                                             variant="danger" 

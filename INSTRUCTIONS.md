@@ -1,3 +1,5 @@
+
+
 # Panduan Setup dan Deployment Aplikasi Absensi
 
 Ini adalah panduan lengkap untuk setup, menjalankan, dan mendeploy aplikasi absensi ini.
@@ -8,7 +10,7 @@ Ini adalah panduan lengkap untuk setup, menjalankan, dan mendeploy aplikasi abse
 3.  **Bagian 2: Setup Project di Lokal**
 4.  **Bagian 3: Deployment ke Vercel**
 5.  **Bagian 4: Cara Memperbarui Aplikasi**
-6.  **Bagian 5: Penyelesaian Masalah**
+6.  **Bagian 5: Penyelesaian Masalah (Troubleshooting)**
 
 ---
 
@@ -74,10 +76,10 @@ create table public.profiles (
 );
 -- Atur agar RLS aktif untuk tabel ini
 alter table public.profiles enable row level security;
--- Policy: Pengguna bisa melihat semua profil, mengubah profil sendiri, dan super admin bisa menghapus.
+-- Policy: Pengguna bisa melihat semua profil, mengubah profil sendiri, dan super admin bisa mengubah dan menghapus.
 create policy "Public profiles are viewable by everyone." on public.profiles for select using (true);
 create policy "Users can insert their own profile." on public.profiles for insert with check (auth.uid() = id);
-create policy "Users can update own profile." on public.profiles for update using (auth.uid() = id);
+create policy "Users can update own profile and Super Admins can update any." on public.profiles for update using (auth.uid() = id or is_super_admin());
 create policy "Super Admins can delete users." on public.profiles for delete using (is_super_admin());
 
 
@@ -142,8 +144,10 @@ create policy "Super Admins can delete logs." on public.audit_log for delete usi
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
+  -- Assign 'parent' role by default to all new users for security.
+  -- Super admin can promote them to 'teacher' later.
   insert into public.profiles (id, full_name, role, email)
-  values (new.id, new.raw_user_meta_data->>'full_name', (new.raw_user_meta_data->>'role')::public.user_role, new.email);
+  values (new.id, new.raw_user_meta_data->>'full_name', 'parent', new.email);
   return new;
 end;
 $$ language plpgsql security definer;
@@ -177,7 +181,7 @@ cd <NAMA_FOLDER_PROJECT>
 ```
 
 #### Langkah 2: Install Dependencies
-Aplikasi ini membutuhkan beberapa pustaka pihak ketiga. Install semuanya dengan satu perintah:
+Aplikasi ini sekarang menggunakan `package.json` untuk mengelola dependensi.
 ```bash
 npm install
 ```
@@ -205,17 +209,20 @@ Aplikasi Anda sekarang berjalan di `http://localhost:5173` (atau port lain yang 
 ### Bagian 3: Deployment ke Vercel
 
 #### Langkah 1: Push Kode ke GitHub
-Pastikan semua perubahan Anda sudah di-commit dan di-push ke repository GitHub Anda.
+Pastikan semua perubahan Anda, termasuk file-file baru seperti `package.json`, sudah di-commit dan di-push ke repository GitHub Anda.
 
 #### Langkah 2: Hubungkan Project di Vercel
 1.  Login ke Vercel dan klik **"Add New... -> Project"**.
 2.  Pilih repository GitHub yang ingin Anda deploy.
-3.  Vercel akan otomatis mendeteksi bahwa ini adalah project Vite. Pengaturan default biasanya sudah benar.
+3.  Vercel akan otomatis mendeteksi bahwa ini adalah project Vite. Konfigurasi build harusnya sudah benar, namun pastikan pengaturannya sebagai berikut:
+    *   **Framework Preset**: `Vite`
+    *   **Build Command**: `npm run build`
+    *   **Output Directory**: `dist`
 4.  **PENTING**: Buka bagian **"Environment Variables"**.
 5.  Tambahkan dua variabel (ini adalah cara aman untuk menyimpan kunci API di production):
     *   **Name**: `VITE_SUPABASE_URL`, **Value**: (tempelkan URL Supabase Anda)
     *   **Name**: `VITE_SUPABASE_ANON_KEY`, **Value**: (tempelkan Kunci Anon Supabase Anda)
-6.  Klik **"Deploy"**. Vercel akan membangun dan mendeploy aplikasi Anda. Setelah selesai, Anda akan mendapatkan URL publik.
+6.  Klik **"Deploy"**. Vercel akan membangun dan mendeploy aplikasi Anda dengan benar.
 
 ---
 
@@ -234,26 +241,29 @@ Jika Anda ingin memperbarui aplikasi yang sudah berjalan di Vercel dan Supabase.
 Vercel akan secara otomatis mendeteksi perubahan pada branch `main` dan memulai proses deployment baru dengan kode terbaru.
 
 #### Langkah 2: Update Database (Jika Ada Perubahan Skema)
-**JANGAN** mengubah skema database produksi langsung dari SQL Editor Supabase jika sudah ada data penting. Gunakan **Migrations**:
-1.  Install Supabase CLI: `npm install -g supabase`.
-2.  Hubungkan CLI ke project Anda: `supabase login` lalu `supabase link --project-ref <ID_PROJECT_ANDA>`.
-3.  Buat file migrasi baru untuk perubahan Anda: `supabase migration new nama_perubahan_skema`.
-4.  Tulis perintah SQL untuk perubahan (misal: `ALTER TABLE students ADD COLUMN nisn TEXT;`) di dalam file migrasi yang baru dibuat.
-5.  Terapkan migrasi ke database Supabase: `supabase db push`.
-
-Ini adalah cara yang aman untuk mengelola perubahan skema database tanpa merusak data yang sudah ada.
-
+Gunakan fitur **Migrations** dari Supabase untuk mengelola perubahan skema database secara aman. Hindari mengubah skema produksi secara manual melalui SQL editor.
 ---
-
 ### Bagian 5: Penyelesaian Masalah (Troubleshooting)
 
-**Error: "Kredensial Supabase tidak ditemukan..."**
+#### Error: `Could not find the 'nisn' column of 'students' in the schema cache`
 
-Jika Anda melihat error ini saat membuka aplikasi di browser, itu berarti aplikasi tidak dapat menemukan kunci API Supabase Anda. Ini bisa terjadi karena beberapa alasan:
+**Gejala:**
+Anda mencoba menyimpan data (misalnya, menambah siswa baru) dan mendapatkan error yang menyebutkan "Could not find the 'nisn' column... in the schema cache".
 
-1.  **Server `npm run dev` tidak berjalan**: Metode yang direkomendasikan untuk menjalankan aplikasi secara lokal adalah dengan perintah `npm run dev` di terminal. Perintah ini akan memulai server pengembangan Vite yang secara otomatis memuat variabel dari file `.env`. **Jangan membuka file `index.html` secara langsung di browser**, karena metode tersebut tidak dapat memuat kredensial Anda.
+**Penyebab:**
+Ini adalah masalah umum Supabase. Artinya, database Anda sudah memiliki kolom (`nisn`), tetapi "cache" internal Supabase yang digunakan oleh API belum diperbarui. Kode aplikasi Anda sudah benar, tetapi Supabase tidak "melihat" perubahan skema terbaru.
 
-2.  **File `.env` salah**: Periksa kembali file `.env` Anda. Pastikan namanya tepat (`.env`, bukan `.env.txt`), berada di folder root project (di level yang sama dengan `index.html`), dan berisi `VITE_SUPABASE_URL` dan `VITE_SUPABASE_ANON_KEY` dengan nilai yang benar.
+**Solusi: Segarkan (Refresh) Schema Cache**
 
-**Solusi Alternatif (Tidak Direkomendasikan)**:
-Jika karena suatu alasan Anda tidak bisa menggunakan `npm run dev`, Anda dapat mengedit file `services/supabaseService.ts` secara langsung dan mengganti placeholder `URL_SUPABASE_ANDA` dan `KUNCI_ANON_SUPABASE_ANDA` dengan kredensial Anda. Namun, ini tidak disarankan karena Anda bisa secara tidak sengaja membagikan kunci rahasia Anda.
+Cara termudah untuk memaksa Supabase menyegarkan cache-nya adalah dengan membuat perubahan kecil dan tidak merusak pada skema database Anda.
+
+1.  Buka project Supabase Anda.
+2.  Navigasi ke **SQL Editor**.
+3.  Klik **"+ New query"**.
+4.  Salin dan tempel perintah di bawah ini, lalu klik **"RUN"**. Perintah ini hanya menambahkan komentar deskriptif ke kolom `nisn`, yang cukup untuk memicu refresh cache.
+
+    ```sql
+    COMMENT ON COLUMN public.students.nisn IS 'Nomor Induk Siswa Nasional (Opsional)';
+    ```
+5.  Tunggu sekitar 30 detik.
+6.  Kembali ke aplikasi Anda dan coba simpan data siswa lagi. Error tersebut seharusnya sudah hilang.

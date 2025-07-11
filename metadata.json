@@ -1,0 +1,5 @@
+{
+  "name": "Sistem Absensi Darul Inayah",
+  "description": "Aplikasi web untuk manajemen absensi siswa di Madrasah Aliyah Darul Inayah. Guru dapat mengelola data siswa, mencatat kehadiran, dan mengunduh laporan. Orang tua dapat memantau kehadiran anak mereka.",
+  "requestFramePermissions": []
+}

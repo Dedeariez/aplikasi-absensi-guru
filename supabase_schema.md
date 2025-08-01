@@ -179,9 +179,100 @@ BEGIN
 END;
 $$;
 
--- Berikan hak akses ke 'anon' role agar bisa dipanggil dari frontend tanpa login
+-- 3. Fungsi RPC untuk Laporan Absensi
+CREATE OR REPLACE FUNCTION public.get_report_data(p_start_date DATE, p_end_date DATE, p_class_level INT DEFAULT 0)
+RETURNS TABLE(
+    student_id UUID,
+    name VARCHAR,
+    class_name VARCHAR,
+    hadir_count BIGINT,
+    sakit_count BIGINT,
+    izin_count BIGINT,
+    alpa_count BIGINT,
+    total_days BIGINT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH daily_status AS (
+        -- Menentukan status prioritas per siswa per hari
+        -- (Jika ada 1 jam Alpa, hari itu dianggap Alpa)
+        SELECT
+            ar.student_id,
+            ar.date,
+            MAX(CASE 
+                WHEN ar.status = 'A' THEN 4
+                WHEN ar.status = 'S' THEN 3
+                WHEN ar.status = 'I' THEN 2
+                WHEN ar.status = 'H' THEN 1
+                ELSE 0 END) as status_priority
+        FROM public.attendance_records ar
+        WHERE ar.date BETWEEN p_start_date AND p_end_date
+        GROUP BY ar.student_id, ar.date
+    )
+    SELECT
+        s.id as student_id,
+        s.name,
+        s.class_name,
+        COALESCE(SUM(CASE WHEN ds.status_priority = 1 THEN 1 ELSE 0 END), 0) as hadir_count,
+        COALESCE(SUM(CASE WHEN ds.status_priority = 3 THEN 1 ELSE 0 END), 0) as sakit_count,
+        COALESCE(SUM(CASE WHEN ds.status_priority = 2 THEN 1 ELSE 0 END), 0) as izin_count,
+        COALESCE(SUM(CASE WHEN ds.status_priority = 4 THEN 1 ELSE 0 END), 0) as alpa_count,
+        COUNT(DISTINCT ds.date) as total_days
+    FROM public.students s
+    LEFT JOIN daily_status ds ON s.id = ds.student_id
+    WHERE 
+        s.is_active = TRUE AND
+        (p_class_level = 0 OR s.class_level = p_class_level)
+    GROUP BY s.id, s.name, s.class_name
+    ORDER BY s.name;
+END;
+$$;
+
+
+-- 4. Fungsi RPC untuk Grafik Dashboard Mingguan
+CREATE OR REPLACE FUNCTION public.get_weekly_attendance_summary()
+RETURNS TABLE(
+    date DATE,
+    percentage NUMERIC
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH date_series AS (
+        SELECT generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day')::date as day
+    ),
+    daily_attendance AS (
+        SELECT
+            ar.date,
+            COUNT(ar.id) as attended_hours
+        FROM public.attendance_records ar
+        WHERE ar.date >= CURRENT_DATE - INTERVAL '6 days' AND ar.status = 'H'
+        GROUP BY ar.date
+    ),
+    active_students AS (
+        SELECT COUNT(id) as total_students FROM public.students WHERE is_active = TRUE
+    )
+    SELECT
+        ds.day as date,
+        COALESCE(
+            (da.attended_hours::NUMERIC / ((SELECT total_students FROM active_students) * 8)) * 100, 
+            0
+        )::NUMERIC(5,2) as percentage
+    FROM date_series ds
+    LEFT JOIN daily_attendance da ON ds.day = da.date
+    ORDER BY ds.day;
+END;
+$$;
+
+
+-- Berikan hak akses ke 'anon' dan 'authenticated'
 GRANT EXECUTE ON FUNCTION public.get_student_attendance_for_parent(TEXT, TEXT, DATE) TO anon;
 GRANT EXECUTE ON FUNCTION public.get_student_attendance_for_parent(TEXT, TEXT, DATE) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_report_data(DATE, DATE, INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_weekly_attendance_summary() TO authenticated;
 
 -- ==== AKHIR SKRIP ====
 -- Setup Selesai.

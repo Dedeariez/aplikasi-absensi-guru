@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Student, AttendanceStatus, User } from '../types.ts';
 import Button from './ui/Button.tsx';
@@ -233,11 +232,11 @@ const Students: React.FC<StudentsProps> = ({ currentUser, addAuditLog, setStuden
                         <p className="ml-4 text-gray-600">Memuat data siswa dan absensi...</p>
                     </div>
                 ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-250px)]">
                     <table className="w-full text-sm text-left text-gray-500">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-100">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-100 sticky top-0 z-20">
                             <tr>
-                                <th scope="col" className="px-6 py-3 sticky left-0 bg-gray-100 z-10 w-1/4">Nama Siswa</th>
+                                <th scope="col" className="px-6 py-3 sticky left-0 bg-gray-100 z-30 w-1/4">Nama Siswa</th>
                                 <th scope="col" className="px-2 py-3">Kelas</th>
                                 {JAM_PELAJARAN.map(jam => (
                                     <th key={jam} scope="col" className="px-2 py-3 text-center w-12">{`J-${jam}`}</th>

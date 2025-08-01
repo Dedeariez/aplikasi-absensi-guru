@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User } from '../types.ts';
 import Card from './ui/Card.tsx';
@@ -171,7 +170,7 @@ const Settings: React.FC<SettingsProps> = ({ user }) => {
                         <p className="text-sm text-gray-600 mb-4">
                             Kelola akun orang tua untuk memberikan akses melihat data kehadiran anak mereka.
                         </p>
-                        <Button variant="secondary" className="w-full">
+                        <Button variant="secondary" className="w-full" disabled title="Fitur akan datang di versi berikutnya">
                             Kelola Akun Orang Tua
                         </Button>
                     </Card>

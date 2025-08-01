@@ -15,9 +15,9 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        setLoading(true);
         if (session?.user) {
           const profile = await getProfile(session.user.id);
           setUser(profile);
@@ -27,18 +27,6 @@ function App() {
         setLoading(false);
       }
     );
-    
-    // Check initial session
-    const checkSession = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
-        if(session?.user) {
-            const profile = await getProfile(session.user.id);
-            setUser(profile);
-        }
-        setLoading(false);
-    };
-
-    checkSession();
 
     return () => {
       subscription?.unsubscribe();

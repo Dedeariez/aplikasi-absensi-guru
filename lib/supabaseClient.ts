@@ -1,14 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { User, Gender, AttendanceStatus } from '../types.ts';
-
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[]
+import { User, ReportRow, WeeklySummary } from '../types.ts';
 
 export type Database = {
   public: {
@@ -84,7 +76,7 @@ export type Database = {
           class_name: string
           created_at: string
           dob: string | null
-          gender: Gender
+          gender: "L" | "P"
           id: string
           is_active: boolean
           name: string
@@ -95,7 +87,7 @@ export type Database = {
           class_name: string
           created_at?: string
           dob?: string | null
-          gender: Gender
+          gender: "L" | "P"
           id?: string
           is_active?: boolean
           name: string
@@ -106,7 +98,7 @@ export type Database = {
           class_name?: string
           created_at?: string
           dob?: string | null
-          gender?: Gender
+          gender?: "L" | "P"
           id?: string
           is_active?: boolean
           name?: string
@@ -120,7 +112,7 @@ export type Database = {
           student_id: string
           date: string
           hour: number
-          status: AttendanceStatus
+          status: "H" | "I" | "S" | "A" | "T"
           created_at: string
           updated_by: string | null
         }
@@ -129,7 +121,7 @@ export type Database = {
           student_id: string
           date: string
           hour: number
-          status: AttendanceStatus
+          status: "H" | "I" | "S" | "A" | "T"
           created_at?: string
           updated_by?: string | null
         }
@@ -138,7 +130,7 @@ export type Database = {
           student_id?: string
           date?: string
           hour?: number
-          status?: AttendanceStatus
+          status?: "H" | "I" | "S" | "A" | "T"
           created_at?: string
           updated_by?: string | null
         }
@@ -176,8 +168,20 @@ export type Database = {
           class_name: string
           attendance_date: string
           hour: number
-          status: AttendanceStatus
+          status: "H" | "I" | "S" | "A" | "T"
         }[]
+      }
+      get_report_data: {
+        Args: {
+          p_start_date: string
+          p_end_date: string
+          p_class_level: number
+        }
+        Returns: ReportRow[]
+      }
+      get_weekly_attendance_summary: {
+        Args: Record<string, never>
+        Returns: WeeklySummary[]
       }
     }
     Enums: {

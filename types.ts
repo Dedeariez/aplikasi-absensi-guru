@@ -44,3 +44,19 @@ export interface AuditLog {
   details: string;
   user_id?: string | null;
 }
+
+export interface ReportRow {
+    student_id: string;
+    name: string;
+    class_name: string;
+    hadir_count: number;
+    sakit_count: number;
+    izin_count: number;
+    alpa_count: number;
+    total_days: number;
+}
+
+export interface WeeklySummary {
+    date: string;
+    percentage: number;
+}

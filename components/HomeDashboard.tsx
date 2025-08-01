@@ -1,11 +1,13 @@
-
 import React from 'react';
 import { Users, BarChart, CheckCircle, AlertTriangle, UserCheck } from 'lucide-react';
 import Card from './ui/Card.tsx';
-import { AuditLog } from '../types.ts';
-import { format } from 'date-fns';
+import { AuditLog, WeeklySummary } from '../types.ts';
+import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
+import { Bar } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 const StatCard: React.FC<{icon: React.ReactNode, title: string, value: string, color: string}> = ({icon, title, value, color}) => (
     <Card>
@@ -22,24 +24,75 @@ const StatCard: React.FC<{icon: React.ReactNode, title: string, value: string, c
 );
 
 
-const HomeDashboard: React.FC<{ auditLogs: AuditLog[], studentCount: number }> = ({ auditLogs, studentCount }) => {
+const HomeDashboard: React.FC<{ auditLogs: AuditLog[], studentCount: number, weeklySummary: WeeklySummary[], todayAttendance: number }> = ({ auditLogs, studentCount, weeklySummary, todayAttendance }) => {
     const recentLogs = auditLogs.slice(0, 5);
+
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false,
+            },
+            title: {
+                display: false,
+            },
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 100,
+                ticks: {
+                    callback: function(value: string | number) {
+                        return value + '%';
+                    }
+                }
+            },
+            x: {
+                grid: {
+                    display: false,
+                }
+            }
+        },
+    };
+
+    const chartData = {
+        labels: weeklySummary.map(d => format(parseISO(d.date), 'EEE', { locale: id })),
+        datasets: [
+            {
+                label: 'Kehadiran',
+                data: weeklySummary.map(d => d.percentage),
+                backgroundColor: 'rgba(22, 163, 74, 0.6)',
+                borderColor: 'rgba(22, 163, 74, 1)',
+                borderWidth: 1,
+                borderRadius: 4,
+            },
+        ],
+    };
+
+    const monthlyAverage = weeklySummary.length > 0 ? (weeklySummary.reduce((acc, curr) => acc + curr.percentage, 0) / weeklySummary.length) : 0;
     
     return (
         <div>
             <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard Utama</h1>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard icon={<Users className="h-6 w-6 text-white"/>} title="Total Siswa Aktif" value={studentCount.toString()} color="bg-blue-500" />
-                <StatCard icon={<CheckCircle className="h-6 w-6 text-white"/>} title="Kehadiran Hari Ini" value="95.2%" color="bg-primary-500" />
-                <StatCard icon={<BarChart className="h-6 w-6 text-white"/>} title="Rata-rata Bulanan" value="92.8%" color="bg-yellow-500" />
+                <StatCard icon={<CheckCircle className="h-6 w-6 text-white"/>} title="Kehadiran Hari Ini" value={`${todayAttendance.toFixed(1)}%`} color="bg-primary-500" />
+                <StatCard icon={<BarChart className="h-6 w-6 text-white"/>} title="Rata-rata 7 Hari" value={`${monthlyAverage.toFixed(1)}%`} color="bg-yellow-500" />
                 <StatCard icon={<AlertTriangle className="h-6 w-6 text-white"/>} title="Perlu Perhatian" value="3 Siswa" color="bg-red-500" />
             </div>
 
             <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <Card className="lg:col-span-2">
-                    <h2 className="text-xl font-semibold text-gray-800 mb-4">Ringkasan Kehadiran Mingguan</h2>
-                    <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <p className="text-gray-500">Grafik Kehadiran Akan Tampil di Sini</p>
+                    <h2 className="text-xl font-semibold text-gray-800 mb-4">Ringkasan Kehadiran 7 Hari Terakhir</h2>
+                    <div className="h-64 relative">
+                        {weeklySummary.length > 0 ? (
+                            <Bar options={chartOptions} data={chartData} />
+                        ) : (
+                             <div className="h-full bg-gray-100 rounded-lg flex items-center justify-center">
+                                <p className="text-gray-500">Data tidak cukup untuk menampilkan grafik.</p>
+                             </div>
+                        )}
                     </div>
                 </Card>
                 <div className="space-y-6">

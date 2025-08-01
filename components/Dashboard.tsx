@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { User, AuditLog as AuditLogType } from '../types.ts';
+import { User, AuditLog as AuditLogType, WeeklySummary } from '../types.ts';
 import Sidebar from './Sidebar.tsx';
 import Header from './Header.tsx';
 import HomeDashboard from './HomeDashboard.tsx';
@@ -10,6 +9,7 @@ import AuditLog from './AuditLog.tsx';
 import Settings from './Settings.tsx';
 import { supabase } from '../lib/supabaseClient.ts';
 import { Loader2 } from 'lucide-react';
+import { format } from 'date-fns';
 
 type View = 'dashboard' | 'students' | 'reports' | 'logs' | 'settings';
 
@@ -23,31 +23,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [auditLogs, setAuditLogs] = useState<AuditLogType[]>([]);
   const [studentCount, setStudentCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [weeklySummary, setWeeklySummary] = useState<WeeklySummary[]>([]);
+  const [todayAttendance, setTodayAttendance] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      // Fetch audit logs
-      const { data: logsData, error: logsError } = await supabase
-        .from('audit_logs')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(100);
 
-      if (logsData) {
-        setAuditLogs(logsData.map(log => ({ ...log, timestamp: new Date(log.timestamp) })));
+      const [logsRes, countRes, weeklyRes, todayRes] = await Promise.all([
+        supabase.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(100),
+        supabase.from('students').select('id', { count: 'exact', head: true }).eq('is_active', true),
+        supabase.rpc('get_weekly_attendance_summary'),
+        supabase.from('attendance_records').select('id', { count: 'exact', head: true }).eq('date', format(new Date(), 'yyyy-MM-dd')).eq('status', 'H')
+      ]);
+
+      if (logsRes.data) {
+        setAuditLogs(logsRes.data.map(log => ({ ...log, timestamp: new Date(log.timestamp) })));
       }
       
-      // Fetch student count
-      const { count, error: countError } = await supabase
-        .from('students')
-        .select('id', { count: 'exact', head: true })
-        .eq('is_active', true);
-
-      if (count !== null) {
-        setStudentCount(count);
+      if (countRes.count !== null) {
+        setStudentCount(countRes.count);
       }
       
+      if(weeklyRes.data){
+        setWeeklySummary(weeklyRes.data);
+      }
+      
+      if(todayRes.count !== null && countRes.count) {
+        const totalPossibleAttendance = countRes.count * 8; // 8 jam pelajaran
+        const percentage = totalPossibleAttendance > 0 ? (todayRes.count / totalPossibleAttendance) * 100 : 0;
+        setTodayAttendance(percentage);
+      }
+
       setLoading(false);
     };
 
@@ -83,7 +90,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
     switch (currentView) {
       case 'dashboard':
-        return <HomeDashboard auditLogs={auditLogs} studentCount={studentCount} />;
+        return <HomeDashboard 
+                  auditLogs={auditLogs} 
+                  studentCount={studentCount} 
+                  weeklySummary={weeklySummary}
+                  todayAttendance={todayAttendance}
+                />;
       case 'students':
         return <Students currentUser={user} addAuditLog={addAuditLog} setStudentCount={setStudentCount} />;
       case 'reports':
@@ -93,7 +105,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       case 'settings':
         return <Settings user={user} />;
       default:
-        return <HomeDashboard auditLogs={auditLogs} studentCount={studentCount} />;
+        return <HomeDashboard 
+                  auditLogs={auditLogs} 
+                  studentCount={studentCount} 
+                  weeklySummary={weeklySummary}
+                  todayAttendance={todayAttendance}
+                />;
     }
   };
 

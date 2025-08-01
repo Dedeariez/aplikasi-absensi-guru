@@ -9,15 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "lucide-react": "^0.528.0",
-    "date-fns": "^4.1.0",
-    "jspdf": "2.5.1",
-    "jspdf-autotable": "3.8.2",
     "@supabase/supabase-js": "^2.45.0",
     "chart.js": "^4.4.3",
-    "react-chartjs-2": "^5.2.0"
+    "date-fns": "^4.1.0",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
+    "lucide-react": "^0.528.0",
+    "react": "^19.1.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

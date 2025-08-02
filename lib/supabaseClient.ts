@@ -1,4 +1,5 @@
 
+
 import { createClient } from '@supabase/supabase-js';
 import { User, ReportRow, WeeklySummary } from '../types.ts';
 
@@ -50,7 +51,7 @@ export type Database = {
         Insert: {
           email: string
           id: string
-          name:string
+          name: string
           role?: "guru" | "orangtua"
         }
         Update: {
@@ -59,16 +60,7 @@ export type Database = {
           name?: string
           role?: "guru" | "orangtua"
         }
-        Relationships: [
-          {
-            foreignKeyName: "profiles_id_fkey"
-            columns: ["id"]
-            isOneToOne: true
-            referencedRelation: "users"
-            referencedRelationSchema: "auth"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       students: {
         Row: {

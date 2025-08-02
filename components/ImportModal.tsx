@@ -4,6 +4,7 @@ import Modal from './ui/Modal.tsx';
 import Button from './ui/Button.tsx';
 import { Upload, FileCheck, AlertCircle, Loader2, Download } from 'lucide-react';
 import { Student, Gender } from '../types.ts';
+import * as XLSX from 'xlsx';
 
 interface ImportModalProps {
     isOpen: boolean;
@@ -21,83 +22,102 @@ interface StagedStudent {
     processed?: Omit<Student, 'id' | 'created_at' | 'is_active'>;
 }
 
-const mockExcelData = [
-    { 'Nama': 'Chandra Wijaya', 'Kelas': '10', 'Jenis Kelamin': 'L', 'NISN': '123123123' },
-    { 'Nama': 'Rina Kartika', 'Kelas': '10', 'Jenis Kelamin': 'P' },
-    { 'Nama': 'Joko Susilo', 'Kelas': '13', 'Jenis Kelamin': 'L' }, // Invalid class
-    { 'Nama': 'Sari Dewi', 'Kelas': '11', 'Jenis Kelamin': 'Wanita' }, // Invalid gender
-    { 'Nama': '', 'Kelas': '12', 'Jenis Kelamin': 'P' }, // Missing name
-];
-
 const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImport, addAuditLog }) => {
     const [file, setFile] = useState<File | null>(null);
     const [stagedStudents, setStagedStudents] = useState<StagedStudent[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [error, setError] = useState('');
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setFile(e.target.files[0]);
-            // In a real app, you'd parse the excel file here using a library like 'xlsx'.
-            // For this demo, we'll simulate parsing and use mock data.
-            processData(mockExcelData);
+        const selectedFile = e.target.files?.[0];
+        if (selectedFile) {
+            setFile(selectedFile);
+            setIsProcessing(true);
+            setError('');
+            setStagedStudents([]);
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = event.target?.result;
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
+                    processData(json);
+                } catch (err) {
+                    console.error("Error parsing Excel file:", err);
+                    setError("Gagal memproses file. Pastikan format file benar (XLSX, XLS, CSV).");
+                    setIsProcessing(false);
+                }
+            };
+            reader.onerror = (err) => {
+                 console.error("Error reading file:", err);
+                 setError("Gagal membaca file.");
+                 setIsProcessing(false);
+            }
+            reader.readAsArrayBuffer(selectedFile);
         }
     };
     
     const processData = (data: any[]) => {
-        setIsProcessing(true);
-        setStagedStudents([]);
-
-        setTimeout(() => { // Simulate processing delay
-            const processed = data.map(row => {
-                const newStudent: StagedStudent = { data: row, status: 'valid' };
-                // Normalize keys to handle case-insensitivity from Excel files
-                const name = row['Nama'] || row['nama'];
-                const classLevelStr = row['Kelas'] || row['kelas'];
-                const gender = row['Jenis Kelamin'] || row['jenis kelamin'];
-                const nisn = row['NISN'] || row['nisn'];
-                
-                const classLevel = parseInt(classLevelStr, 10);
-
-                if (!name) {
-                    newStudent.status = 'invalid';
-                    newStudent.message = 'Kolom "Nama" tidak boleh kosong.';
-                } else if (![10, 11, 12].includes(classLevel)) {
-                    newStudent.status = 'invalid';
-                    newStudent.message = 'Kolom "Kelas" tidak valid (harus 10, 11, atau 12).';
-                } else if (gender?.toUpperCase() !== 'L' && gender?.toUpperCase() !== 'P') {
-                    newStudent.status = 'invalid';
-                    newStudent.message = 'Kolom "Jenis Kelamin" tidak valid (harus L atau P).';
-                } else {
-                    const studentGender = gender.toUpperCase() as Gender;
-                    const className = `${classLevel}-${studentGender === Gender.Male ? 'A' : 'B'}`;
-                    newStudent.processed = {
-                        name: name,
-                        class_level: classLevel as 10 | 11 | 12,
-                        class_name: className,
-                        gender: studentGender,
-                        nisn: nisn
-                    };
-                }
-                return newStudent;
-            });
-            setStagedStudents(processed);
+        if (!data || data.length === 0) {
+            setError("File Excel kosong atau tidak memiliki data.");
             setIsProcessing(false);
-        }, 1000);
+            return;
+        }
+
+        const processed = data.map(row => {
+            const newStudent: StagedStudent = { data: row, status: 'valid' };
+            // Normalize keys to handle case-insensitivity from Excel files
+            const name = row['Nama'] || row['nama'];
+            const classLevelStr = row['Kelas'] || row['kelas'];
+            const gender = row['Jenis Kelamin'] || row['jenis kelamin'];
+            const nisn = row['NISN'] || row['nisn'];
+            
+            if (!name || !classLevelStr || !gender) {
+                 newStudent.status = 'invalid';
+                 newStudent.message = 'Kolom "Nama", "Kelas", dan "Jenis Kelamin" wajib diisi.';
+                 return newStudent;
+            }
+
+            const classLevel = parseInt(String(classLevelStr), 10);
+
+            if (!name) {
+                newStudent.status = 'invalid';
+                newStudent.message = 'Kolom "Nama" tidak boleh kosong.';
+            } else if (![10, 11, 12].includes(classLevel)) {
+                newStudent.status = 'invalid';
+                newStudent.message = 'Kolom "Kelas" tidak valid (harus 10, 11, atau 12).';
+            } else if (String(gender)?.toUpperCase() !== 'L' && String(gender)?.toUpperCase() !== 'P') {
+                newStudent.status = 'invalid';
+                newStudent.message = 'Kolom "Jenis Kelamin" tidak valid (harus L atau P).';
+            } else {
+                const studentGender = String(gender).toUpperCase() as Gender;
+                const className = `${classLevel}-${studentGender === Gender.Male ? 'A' : 'B'}`;
+                newStudent.processed = {
+                    name: name,
+                    class_level: classLevel as 10 | 11 | 12,
+                    class_name: className,
+                    gender: studentGender,
+                    nisn: nisn
+                };
+            }
+            return newStudent;
+        });
+        setStagedStudents(processed);
+        setIsProcessing(false);
     };
     
     // This function would generate and download a sample Excel file.
     const downloadTemplate = () => {
-        // In a real app, use a library like 'xlsx' to create a blob and download it.
-        const headers = "Nama,Kelas,Jenis Kelamin,NISN\n";
-        const example1 = "Budi Hartono,10,L,1234567890\n";
-        const example2 = "Citra Lestari,11,P,\n"; // Example with optional NISN
-        const csvContent = "data:text/csv;charset=utf-8," + encodeURI(headers + example1 + example2);
-        const link = document.createElement("a");
-        link.setAttribute("href", csvContent);
-        link.setAttribute("download", "template_impor_siswa.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const worksheet = XLSX.utils.json_to_sheet([
+            { 'Nama': 'Budi Hartono', 'Kelas': 10, 'Jenis Kelamin': 'L', 'NISN': '1234567890' },
+            { 'Nama': 'Citra Lestari', 'Kelas': 11, 'Jenis Kelamin': 'P', 'NISN': ''}
+        ]);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Siswa");
+        XLSX.writeFile(workbook, "template_impor_siswa.xlsx");
     };
 
     const handleImportClick = () => {
@@ -105,7 +125,6 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImport, ad
             .filter(s => s.status === 'valid' && s.processed)
             .map(s => s.processed!);
         onImport(validStudents);
-        // addAuditLog is now called in the parent component after successful import
         resetState();
     };
 
@@ -113,6 +132,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImport, ad
         setFile(null);
         setStagedStudents([]);
         setIsProcessing(false);
+        setError('');
         onClose();
     }
 
@@ -155,14 +175,17 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImport, ad
                                 <span>Memvalidasi data...</span>
                             </div>
                         ) : (
-                            <div className="flex items-center space-x-4 mt-2">
-                                <div className="flex items-center text-green-600">
-                                    <FileCheck className="h-5 w-5 mr-1" /> {validCount} baris valid
+                            <>
+                                <div className="flex items-center space-x-4 mt-2">
+                                    <div className="flex items-center text-green-600">
+                                        <FileCheck className="h-5 w-5 mr-1" /> {validCount} baris valid
+                                    </div>
+                                    {invalidCount > 0 && <div className="flex items-center text-red-600">
+                                        <AlertCircle className="h-5 w-5 mr-1" /> {invalidCount} baris tidak valid
+                                    </div>}
                                 </div>
-                                {invalidCount > 0 && <div className="flex items-center text-red-600">
-                                    <AlertCircle className="h-5 w-5 mr-1" /> {invalidCount} baris tidak valid
-                                </div>}
-                            </div>
+                                {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+                           </>
                         )}
                     </div>
 
